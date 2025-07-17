@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import type React from "react"
+
+import { useEffect, useState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,6 +28,7 @@ import {
   Gamepad2,
   Zap,
   Activity,
+  Paperclip,
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import { useAuth } from "@/hooks/useAuth"
@@ -56,51 +59,15 @@ export default function Dashboard() {
   const [inputMessage, setInputMessage] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [framework, setFramework] = useState("phaser.js")
-  const [code, setCode] = useState(`// 🎮 Welcome to CLAW v2 - Phaser.js Game Development
-// Your generated game code will appear here
-
-class GameScene extends Phaser.Scene {
-    constructor() {
-        super({ key: 'GameScene' });
-    }
-    
-    preload() {
-        // Load game assets
-        console.log('🚀 Ready to create amazing games!');
-    }
-    
-    create() {
-        // Initialize game objects
-        this.add.text(400, 300, 'Start building your game!', {
-            fontSize: '32px',
-            fill: '#ffffff'
-        }).setOrigin(0.5);
-    }
-    
-    update() {
-        // Game loop
-    }
-}
-
-// Game configuration
-const config = {
-    type: Phaser.AUTO,
-    width: 800,
-    height: 600,
-    scene: GameScene,
-    physics: {
-        default: 'arcade',
-        arcade: { gravity: { y: 300 }, debug: false }
-    }
-};
-
-// Start the game
-const game = new Phaser.Game(config);`)
-
+  const [code, setCode] = useState("") // Changed to empty string
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop")
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [systemStatus, setSystemStatus] = useState<any>(null)
+
+  // State for custom resizable panels
+  const [chatPanelWidth, setChatPanelWidth] = useState(25) // Default width percentage
+  const [isResizing, setIsResizing] = useState(false)
 
   useEffect(() => {
     console.log("🏠 Dashboard - Auth state:", {
@@ -156,7 +123,7 @@ const game = new Phaser.Game(config);`)
     }
 
     if (activeConversation) {
-      await sendMessage(content, attachedFiles)
+      await sendMessage(content, framework, attachedFiles) // Pass framework and files
       setAttachedFiles([])
     }
   }
@@ -229,6 +196,30 @@ const game = new Phaser.Game(config);`)
         return "w-full h-full"
     }
   }
+
+  // Custom Resizable Panel Logic
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+    document.addEventListener("mousemove", handleMouseMove)
+    document.addEventListener("mouseup", handleMouseUp)
+  }, [])
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isResizing) return
+      const newWidth = (e.clientX / window.innerWidth) * 100
+      // Clamp width between 20% and 40%
+      setChatPanelWidth(Math.max(20, Math.min(40, newWidth)))
+    },
+    [isResizing],
+  )
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false)
+    document.removeEventListener("mousemove", handleMouseMove)
+    document.removeEventListener("mouseup", handleMouseUp)
+  }, [handleMouseMove])
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -438,14 +429,10 @@ const game = new Phaser.Game(config);`)
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content with Custom Resizable Panels */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat Sidebar */}
-        <div
-          className={`w-full md:w-96 border-r border-gray-200 flex flex-col bg-gray-50 ${
-            activeTab === "preview" ? "hidden md:flex" : "flex"
-          }`}
-        >
+        {/* Chat Sidebar Panel */}
+        <div className="flex flex-col bg-gray-50" style={{ width: `${chatPanelWidth}%` }}>
           {/* Chat Header */}
           <div className="p-4 border-b border-gray-200 bg-white">
             <div className="flex items-center justify-between mb-3">
@@ -474,22 +461,24 @@ const game = new Phaser.Game(config);`)
 
             {/* Conversation List */}
             {conversations.length > 0 && (
-              <div className="space-y-1">
-                {conversations.slice(0, 3).map((conversation) => (
-                  <button
-                    key={conversation._id}
-                    onClick={() => loadConversation(conversation._id)}
-                    className={`w-full text-left px-2 py-1 rounded text-xs truncate ${
-                      activeConversation?._id === conversation._id
-                        ? "bg-blue-100 text-blue-900"
-                        : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <MessageSquare className="h-3 w-3 inline mr-1" />
-                    {conversation.title}
-                  </button>
-                ))}
-              </div>
+              <ScrollArea className="h-40">
+                <div className="space-y-1 pr-2">
+                  {conversations.map((conversation) => (
+                    <button
+                      key={conversation._id}
+                      onClick={() => loadConversation(conversation._id)}
+                      className={`w-full text-left px-2 py-1 rounded text-xs truncate ${
+                        activeConversation?._id === conversation._id
+                          ? "bg-blue-100 text-blue-900"
+                          : "text-gray-600 hover:bg-gray-100"
+                      }`}
+                    >
+                      <MessageSquare className="h-3 w-3 inline mr-1" />
+                      {conversation.title}
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
             )}
           </div>
 
@@ -542,8 +531,16 @@ const game = new Phaser.Game(config);`)
 
           {/* Chat Input */}
           <div className="p-4 border-t border-gray-200 bg-white space-y-3">
-            {/* File Upload */}
-            <FileUpload files={attachedFiles} onFilesChange={setAttachedFiles} maxFiles={5} maxSize={50} />
+            {/* File Upload - now collapsible */}
+            <details className="text-xs text-gray-500">
+              <summary className="cursor-pointer hover:text-gray-700 flex items-center space-x-2">
+                <Paperclip className="h-4 w-4" />
+                <span>Attach Files ({attachedFiles.length})</span>
+              </summary>
+              <div className="mt-2">
+                <FileUpload files={attachedFiles} onFilesChange={setAttachedFiles} maxFiles={5} maxSize={50} />
+              </div>
+            </details>
 
             {/* Message Input */}
             <div className="flex space-x-3">
@@ -571,47 +568,49 @@ const game = new Phaser.Game(config);`)
           </div>
         </div>
 
-        {/* Code/Preview Area */}
+        {/* Custom Resizable Handle */}
         <div
-          className={`flex-1 flex flex-col ${
-            activeTab === "code" ? "hidden md:flex" : activeTab === "preview" ? "flex" : "flex"
-          }`}
+          className="w-2 bg-gray-200 cursor-ew-resize flex items-center justify-center"
+          onMouseDown={handleMouseDown}
         >
+          <div className="w-1 h-8 bg-gray-400 rounded-full" />
+        </div>
+
+        {/* Code/Preview Area Panel */}
+        <div className="flex-1 flex flex-col">
           <div className="flex-1 flex">
-            {/* Code Editor */}
+            {/* Code Editor Panel */}
             <div
-              className={`${activeTab === "preview" ? "hidden md:block md:w-1/2" : "w-full"} border-r border-gray-200`}
+              className={`h-full bg-gray-50 ${activeTab === "preview" ? "hidden" : "w-full"}`}
+              style={{ width: activeTab === "code" ? "100%" : "0%" }}
             >
-              <div className="h-full bg-gray-50">
-                <MonacoEditor
-                  height="100%"
-                  defaultLanguage="javascript"
-                  value={code}
-                  onChange={(value) => setCode(value || "")}
-                  theme="light"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-                    lineNumbers: "on",
-                    roundedSelection: false,
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    wordWrap: "on",
-                    folding: true,
-                    bracketPairColorization: { enabled: true },
-                    padding: { top: 16, bottom: 16 },
-                  }}
-                />
-              </div>
+              <MonacoEditor
+                height="100%"
+                defaultLanguage="javascript"
+                value={code}
+                onChange={(value) => setCode(value || "")}
+                theme="light"
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+                  lineNumbers: "on",
+                  roundedSelection: false,
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 2,
+                  wordWrap: "on",
+                  folding: true,
+                  bracketPairColorization: { enabled: true },
+                  padding: { top: 16, bottom: 16 },
+                }}
+              />
             </div>
 
-            {/* Preview */}
+            {/* Preview Panel */}
             <div
-              className={`${
-                activeTab === "code" ? "hidden md:block md:w-1/2" : "w-full"
-              } bg-gray-100 flex items-center justify-center p-6`}
+              className={`bg-gray-100 flex items-center justify-center p-6 h-full ${activeTab === "code" ? "hidden" : "w-full"}`}
+              style={{ width: activeTab === "preview" ? "100%" : "0%" }}
             >
               <div
                 className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 ${getViewportClass()}`}
