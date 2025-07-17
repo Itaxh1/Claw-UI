@@ -158,13 +158,29 @@ class ApiClient {
         },
       })
 
-      const rawData = await response.json() // This is the raw JSON response from the server
+      let rawData: any
+      let responseText: string | null = null
+
+      try {
+        // Try to parse as JSON first
+        rawData = await response.json()
+      } catch (jsonError) {
+        // If JSON parsing fails, try to read as text
+        try {
+          responseText = await response.text()
+          console.error("JSON parsing failed, raw response text:", responseText)
+        } catch (textError) {
+          console.error("Failed to read response as text:", textError)
+        }
+        // Set rawData to an empty object or null if parsing failed
+        rawData = {}
+      }
 
       if (!response.ok) {
         return {
           success: false,
-          error: rawData.error || "Unknown error",
-          message: rawData.message || rawData.error || "An error occurred",
+          error: rawData.error || responseText || "Unknown error from server",
+          message: rawData.message || responseText || rawData.error || "An error occurred",
         }
       }
 
@@ -256,13 +272,28 @@ class ApiClient {
         body: formData,
       })
 
-      const rawData = await response.json() // Raw server response
+      let rawData: any
+      let responseText: string | null = null
+
+      try {
+        // Try to parse as JSON first
+        rawData = await response.json()
+      } catch (jsonError) {
+        // If JSON parsing fails, try to read as text
+        try {
+          responseText = await response.text()
+          console.error("sendMessage: JSON parsing failed, raw response text:", responseText)
+        } catch (textError) {
+          console.error("sendMessage: Failed to read response as text:", textError)
+        }
+        rawData = {} // Ensure rawData is an object for subsequent access
+      }
 
       if (!response.ok) {
         return {
           success: false,
-          error: rawData.error || "Unknown error",
-          message: rawData.message || rawData.error || "An error occurred",
+          error: rawData.error || responseText || "Unknown error from server",
+          message: rawData.message || responseText || rawData.error || "An error occurred",
         }
       }
 

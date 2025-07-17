@@ -46,6 +46,7 @@ export default function Dashboard() {
   const {
     conversations,
     activeConversation,
+    messages, // This is now derived from activeConversation
     isLoading,
     isSending,
     createConversation,
@@ -116,14 +117,22 @@ export default function Dashboard() {
     const content = inputMessage
     setInputMessage("")
 
+    let currentConversation = activeConversation
+
     // Create new conversation if none exists
-    if (!activeConversation) {
+    if (!currentConversation) {
       const title = content.slice(0, 50) + (content.length > 50 ? "..." : "")
-      await createConversation(title)
+      const newConversation = await createConversation(title) // Capture the new conversation
+      if (newConversation) {
+        currentConversation = newConversation // Use the newly created conversation
+      } else {
+        console.error("Failed to create new conversation.")
+        return // Stop if conversation creation failed
+      }
     }
 
-    if (activeConversation) {
-      await sendMessage(content, framework, attachedFiles) // Pass framework and files
+    if (currentConversation) {
+      await sendMessage(content, framework, attachedFiles) // Pass framework and files correctly
       setAttachedFiles([])
     }
   }
