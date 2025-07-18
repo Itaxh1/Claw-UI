@@ -58,13 +58,15 @@ export function useConversations() {
     const response = await api.getConversations()
 
     if (response.success && response.data) {
-      setConversations(response.data)
+      setConversations(response.data || [])
 
-      if (response.data.length > 0 && !activeConversation) {
+      if ((response.data || []).length > 0 && !activeConversation) {
         await loadConversation(response.data[0]._id)
       } else if (activeConversation) {
         await loadConversation(activeConversation._id)
       }
+    } else {
+      setConversations([])
     }
 
     setIsLoading(false)
@@ -76,7 +78,7 @@ export function useConversations() {
 
     if (response.success && response.data) {
       const newConversation = response.data
-      setConversations((prev) => [newConversation, ...prev])
+      setConversations((prev) => [newConversation, ...(prev || [])])
       setActiveConversation(newConversation)
       setIsLoading(false)
       return newConversation
@@ -139,6 +141,20 @@ export function useConversations() {
           setStreamingState((prev) => ({
             ...prev,
             currentThinking: event.content || "",
+          }))
+          break
+
+        case "thinking_detail":
+          setStreamingState((prev) => ({
+            ...prev,
+            currentThinking: event.content || "",
+          }))
+          break
+
+        case "text_start":
+          setStreamingState((prev) => ({
+            ...prev,
+            currentTextChunks: [],
           }))
           break
 
@@ -271,6 +287,24 @@ export function useConversations() {
             eventSourceRef.current.close()
             eventSourceRef.current = null
           }
+          break
+
+        case "verification":
+          setStreamingState((prev) => ({
+            ...prev,
+            currentThinking: "Verifying code quality...",
+          }))
+          break
+
+        case "generation_complete":
+          setStreamingState((prev) => ({
+            ...prev,
+            currentThinking: "Generation completed!",
+          }))
+          break
+
+        case "ping":
+          // Keep-alive event, ignore
           break
       }
     },

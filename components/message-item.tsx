@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { User, Sparkles, Edit3, Check, X, Paperclip, Download, Code, Eye, Clock, AlertCircle } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { User, Bot, Edit3, Check, X, Paperclip, Download, Code, Eye, Clock, AlertCircle, Copy } from "lucide-react"
 import type { Message, LLMResponse } from "@/lib/api"
 
 interface MessageItemProps {
@@ -26,6 +27,7 @@ export function MessageItem({
   const [isEditing, setIsEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [copiedFile, setCopiedFile] = useState<string | null>(null)
 
   const content = getLatestContent(message)
   const llmResponse = getLatestLLMResponse(message)
@@ -52,33 +54,40 @@ export function MessageItem({
     setIsEditing(false)
   }
 
-  return (
-    <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-          message.role === "user" ? "bg-gray-900 text-white" : "bg-white border border-gray-200 text-gray-900"
-        }`}
-      >
-        <div className="flex items-start space-x-3">
-          {message.role === "assistant" && (
-            <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center mt-0.5">
-              <Sparkles className="h-3 w-3 text-gray-600" />
-            </div>
-          )}
-          {message.role === "user" && (
-            <div className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center mt-0.5">
-              <User className="h-3 w-3 text-gray-300" />
-            </div>
-          )}
+  const copyToClipboard = async (text: string, fileName: string) => {
+    await navigator.clipboard.writeText(text)
+    setCopiedFile(fileName)
+    setTimeout(() => setCopiedFile(null), 2000)
+  }
 
-          <div className="flex-1">
-            {/* Message Content */}
+  const isUser = message.role === "user"
+
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6`}>
+      <div className={`flex ${isUser ? "flex-row-reverse" : "flex-row"} items-start space-x-3 max-w-[85%]`}>
+        {/* Avatar */}
+        <div
+          className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+            isUser ? "bg-blue-600 ml-3" : "bg-gray-100 mr-3"
+          }`}
+        >
+          {isUser ? <User className="h-4 w-4 text-white" /> : <Bot className="h-4 w-4 text-gray-600" />}
+        </div>
+
+        {/* Message Content */}
+        <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+          {/* Message Bubble */}
+          <div
+            className={`rounded-2xl px-4 py-3 ${
+              isUser ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-900"
+            }`}
+          >
             {isEditing ? (
-              <div className="space-y-2">
+              <div className="space-y-2 min-w-[200px]">
                 <Input
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
-                  className="bg-gray-50 border-gray-200"
+                  className="bg-gray-50 border-gray-200 text-gray-900"
                   placeholder="Edit your message..."
                 />
                 <div className="flex space-x-2">
@@ -108,12 +117,17 @@ export function MessageItem({
             {/* Attachments */}
             {message.attachments && message.attachments.length > 0 && (
               <div className="mt-3 space-y-2">
-                <div className="text-xs text-gray-500">Attachments:</div>
+                <div className="text-xs opacity-75">Attachments:</div>
                 {message.attachments.map((attachment) => (
-                  <div key={attachment._id} className="flex items-center space-x-2 bg-gray-50 rounded p-2 text-xs">
+                  <div
+                    key={attachment._id}
+                    className={`flex items-center space-x-2 rounded p-2 text-xs ${
+                      isUser ? "bg-blue-500" : "bg-gray-50"
+                    }`}
+                  >
                     <Paperclip className="h-3 w-3" />
                     <span className="flex-1 truncate">{attachment.originalName}</span>
-                    <span className="text-gray-500">{(attachment.size / 1024).toFixed(1)}KB</span>
+                    <span className="opacity-75">{(attachment.size / 1024).toFixed(1)}KB</span>
                     <Button
                       size="sm"
                       variant="ghost"
@@ -126,93 +140,200 @@ export function MessageItem({
                 ))}
               </div>
             )}
+          </div>
 
-            {/* LLM Response */}
-            {llmResponse && (
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center space-x-2">
-                  <Badge variant="outline" className="text-xs">
-                    {llmResponse.provider}
-                  </Badge>
-                  <Badge
-                    variant={
-                      llmResponse.status === "completed"
-                        ? "default"
-                        : llmResponse.status === "error"
-                          ? "destructive"
-                          : "secondary"
-                    }
-                    className="text-xs"
-                  >
-                    {llmResponse.status === "generating" && <Clock className="h-3 w-3 mr-1" />}
-                    {llmResponse.status === "error" && <AlertCircle className="h-3 w-3 mr-1" />}
-                    {llmResponse.status}
-                  </Badge>
+          {/* AI Response Content */}
+          {!isUser && llmResponse && (
+            <div className="mt-3 w-full max-w-4xl">
+              {/* Status Badge */}
+              <div className="flex items-center space-x-2 mb-3">
+                <Badge variant="outline" className="text-xs">
+                  {llmResponse.provider}
+                </Badge>
+                <Badge
+                  variant={
+                    llmResponse.status === "completed"
+                      ? "default"
+                      : llmResponse.status === "error"
+                        ? "destructive"
+                        : "secondary"
+                  }
+                  className="text-xs"
+                >
+                  {llmResponse.status === "generating" && <Clock className="h-3 w-3 mr-1" />}
+                  {llmResponse.status === "error" && <AlertCircle className="h-3 w-3 mr-1" />}
+                  {llmResponse.status}
+                </Badge>
+              </div>
+
+              {/* Text Response */}
+              {llmResponse.textResponse && (
+                <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                    {llmResponse.textResponse}
+                  </p>
                 </div>
+              )}
 
-                {llmResponse.textResponse && (
-                  <div className="bg-gray-50 rounded p-3 text-sm">
-                    <p className="whitespace-pre-wrap">{llmResponse.textResponse}</p>
-                  </div>
-                )}
-
-                {llmResponse.codeResponse && (
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Code className="h-4 w-4" />
-                      <span className="text-sm font-medium">Generated Code</span>
-                      <Badge variant="secondary" className="text-xs">
-                        {llmResponse.codeResponse.framework}
-                      </Badge>
+              {/* Code Response - v0 Style */}
+              {llmResponse.codeResponse && (
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Code className="h-4 w-4 text-gray-600" />
+                        <span className="font-medium text-gray-900">Generated Code</span>
+                        <Badge variant="secondary" className="text-xs">
+                          {llmResponse.codeResponse.framework}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {llmResponse.codeResponse.files.length} files
+                        </Badge>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {llmResponse.codeResponse.previewUrl && (
+                          <Button size="sm" variant="outline">
+                            <Eye className="h-3 w-3 mr-1" />
+                            Preview
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline">
+                          <Download className="h-3 w-3 mr-1" />
+                          Download
+                        </Button>
+                      </div>
                     </div>
 
-                    <ScrollArea className="max-h-40 bg-gray-900 rounded p-3">
-                      <div className="space-y-2">
-                        {llmResponse.codeResponse.files.map((file, index) => (
-                          <div key={index} className="text-xs">
-                            <div className="text-gray-400 mb-1">{file.path}</div>
-                            <pre className="text-gray-200 whitespace-pre-wrap">{file.content.slice(0, 200)}...</pre>
-                          </div>
+                    {/* Game Features */}
+                    {llmResponse.codeResponse.gameFeatures && llmResponse.codeResponse.gameFeatures.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {llmResponse.codeResponse.gameFeatures.map((feature, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs bg-blue-50 text-blue-700">
+                            {feature}
+                          </Badge>
                         ))}
                       </div>
-                    </ScrollArea>
-
-                    {llmResponse.codeResponse.previewUrl && (
-                      <Button size="sm" variant="outline" className="w-full bg-transparent">
-                        <Eye className="h-3 w-3 mr-2" />
-                        View Preview
-                      </Button>
                     )}
                   </div>
-                )}
 
-                {llmResponse.thinking && (
-                  <details className="text-xs">
-                    <summary className="cursor-pointer text-gray-500">AI Thinking Process</summary>
-                    <div className="mt-2 bg-gray-50 rounded p-2 text-gray-600 whitespace-pre-wrap">
-                      {llmResponse.thinking}
+                  {/* File Tabs */}
+                  <Tabs defaultValue={llmResponse.codeResponse.files[0]?.path} className="w-full">
+                    <div className="border-b border-gray-200 bg-gray-50">
+                      <TabsList className="h-auto p-0 bg-transparent">
+                        <ScrollArea className="w-full">
+                          <div className="flex">
+                            {llmResponse.codeResponse.files.map((file, index) => (
+                              <TabsTrigger
+                                key={index}
+                                value={file.path}
+                                className="flex items-center space-x-2 px-4 py-2 text-sm font-medium border-b-2 border-transparent data-[state=active]:border-blue-500 data-[state=active]:bg-white rounded-none"
+                              >
+                                <Code className="h-3 w-3" />
+                                <span>{file.path}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {file.language}
+                                </Badge>
+                              </TabsTrigger>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </TabsList>
                     </div>
-                  </details>
-                )}
 
-                {llmResponse.error && (
-                  <div className="bg-red-50 border border-red-200 rounded p-2 text-red-600 text-xs">
-                    {llmResponse.error}
+                    {/* File Contents */}
+                    {llmResponse.codeResponse.files.map((file, index) => (
+                      <TabsContent key={index} value={file.path} className="m-0">
+                        <div className="relative">
+                          {/* File Header */}
+                          <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-sm font-medium text-gray-900">{file.path}</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {file.size} bytes
+                              </Badge>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => copyToClipboard(file.content, file.path)}
+                              className="h-7 px-2"
+                            >
+                              {copiedFile === file.path ? (
+                                <Check className="h-3 w-3 text-green-600" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+
+                          {/* Code Content */}
+                          <ScrollArea className="h-80">
+                            <pre className="p-4 text-xs font-mono bg-gray-900 text-gray-100 overflow-x-auto">
+                              <code>{file.content}</code>
+                            </pre>
+                          </ScrollArea>
+
+                          {/* File Description */}
+                          {file.description && (
+                            <div className="px-4 py-2 bg-blue-50 border-t border-blue-200 text-xs text-blue-700">
+                              {file.description}
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    ))}
+                  </Tabs>
+
+                  {/* Instructions */}
+                  {llmResponse.codeResponse.instructions && (
+                    <div className="px-4 py-3 bg-green-50 border-t border-green-200">
+                      <div className="flex items-start space-x-2">
+                        <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center mt-0.5">
+                          <Eye className="h-3 w-3 text-green-600" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-medium text-green-900 mb-1">How to Run</h4>
+                          <div className="text-sm text-green-700 whitespace-pre-wrap">
+                            {llmResponse.codeResponse.instructions}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Thinking Process */}
+              {llmResponse.thinking && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+                    AI Thinking Process
+                  </summary>
+                  <div className="mt-2 bg-gray-50 rounded p-3 text-xs text-gray-600 whitespace-pre-wrap">
+                    {llmResponse.thinking}
                   </div>
-                )}
-              </div>
-            )}
+                </details>
+              )}
 
-            {/* Actions */}
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-xs opacity-60">{new Date(message.createdAt).toLocaleTimeString()}</p>
-              {message.role === "user" && !isEditing && (
-                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleEdit}>
-                  <Edit3 className="h-3 w-3 mr-1" />
-                  Edit
-                </Button>
+              {/* Error */}
+              {llmResponse.error && (
+                <div className="mt-3 bg-red-50 border border-red-200 rounded p-3 text-red-600 text-sm">
+                  {llmResponse.error}
+                </div>
               )}
             </div>
+          )}
+
+          {/* Message Actions */}
+          <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+            <span>{new Date(message.createdAt).toLocaleTimeString()}</span>
+            {isUser && !isEditing && (
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs ml-2" onClick={handleEdit}>
+                <Edit3 className="h-3 w-3 mr-1" />
+                Edit
+              </Button>
+            )}
           </div>
         </div>
       </div>

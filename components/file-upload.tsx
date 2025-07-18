@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -136,13 +136,31 @@ export function FileUpload({ files, onFilesChange, maxFiles = 5, maxSize = 50 }:
     [files, maxFiles, onFilesChange],
   )
 
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(true)
+  }, [])
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+  }, [])
+
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (e.type === "dragenter" || e.type === "dragover") {
       setDragActive(true)
     } else if (e.type === "dragleave") {
-      setDragActive(false)
+      // Only set inactive if we're leaving the drop zone completely
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX
+      const y = e.clientY
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+        setDragActive(false)
+      }
     }
   }, [])
 
@@ -178,6 +196,14 @@ export function FileUpload({ files, onFilesChange, maxFiles = 5, maxSize = 50 }:
 
   const clearErrors = () => setErrors([])
 
+  useEffect(() => {
+    return () => {
+      // Cleanup any remaining drag state
+      setDragActive(false)
+      setUploadProgress({})
+    }
+  }, [])
+
   return (
     <div className="space-y-3">
       {/* Upload Area */}
@@ -205,8 +231,9 @@ export function FileUpload({ files, onFilesChange, maxFiles = 5, maxSize = 50 }:
           type="file"
           multiple
           onChange={handleFileInput}
-          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
           accept=".png,.jpg,.jpeg,.gif,.svg,.js,.ts,.html,.css,.json,.txt,.md,.pdf,.mp3,.wav,.ogg,.zip,.tar.gz"
+          onClick={(e) => e.stopPropagation()}
         />
       </div>
 

@@ -99,16 +99,22 @@ export interface StreamInitResponse {
 export interface StreamEvent {
   type:
     | "thinking"
+    | "thinking_detail"
+    | "text_start"
     | "text_chunk"
     | "code_start"
     | "file_start"
     | "file_chunk"
     | "file_complete"
+    | "verification"
     | "preview_start"
     | "preview_ready"
     | "download_ready"
+    | "generation_complete"
     | "complete"
     | "error"
+    | "preview_error"
+    | "ping"
     | "end"
   content?: string
   chunk?: string
@@ -289,13 +295,13 @@ class ApiClient {
   async sendMessage(conversationId: string, text: string, files?: File[]): Promise<ApiResponse<StreamInitResponse>> {
     const formData = new FormData()
 
-    // Add text as form field (as per API spec)
+    // Add text field
     formData.append("text", text)
 
-    // Add attachments if provided
+    // Add files if provided
     if (files && files.length > 0) {
       files.forEach((file) => {
-        formData.append("attachments", file)
+        formData.append("attachments", file) // Using "attachments" as per API docs
       })
     }
 
@@ -305,7 +311,7 @@ class ApiClient {
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
-          // Don't set Content-Type for FormData, let browser set it with boundary
+          // Don't set Content-Type for FormData
         },
         body: formData,
       })
@@ -343,7 +349,7 @@ class ApiClient {
     }
   }
 
-  // Create EventSource connection for streaming - Fixed token handling
+  // Create EventSource connection for streaming - Using fetch with ReadableStream for auth headers
   createStreamConnection(
     conversationId: string,
     messageId: string,
@@ -351,53 +357,122 @@ class ApiClient {
     onError: (error: any) => void,
   ): EventSource {
     const token = this.getToken()
-
-    // Build the stream URL with token as query parameter since EventSource doesn't support headers
     const streamPath = `/api/conversations/${conversationId}/messages/${messageId}/stream`
-    const fullUrl = `${API_BASE_URL}${streamPath}${token ? `?token=${encodeURIComponent(token)}` : ""}`
+    const fullUrl = `${API_BASE_URL}${streamPath}`
 
     console.log("🔗 Connecting to stream:", {
       conversationId,
       messageId,
       streamPath,
       hasToken: !!token,
-      fullUrl: fullUrl.replace(token || "", "***TOKEN***"), // Hide token in logs
+      url: fullUrl,
     })
 
-    const eventSource = new EventSource(fullUrl)
+    // Since EventSource doesn't support custom headers, we need to use a different approach
+    // We'll create a custom EventSource-like implementation using fetch
+    const eventSource: EventSource | null = null
+    let controller: AbortController | null = null
 
-    eventSource.onopen = (event) => {
-      console.log("✅ Stream connection opened:", event)
-    }
-
-    eventSource.onmessage = (event) => {
+    const connectWithFetch = async () => {
       try {
-        const data: StreamEvent = JSON.parse(event.data)
-        console.log("📡 Stream event received:", data.type, data)
-        onEvent(data)
+        controller = new AbortController()
+
+        const response = await fetch(fullUrl, {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            "Cache-Control": "no-cache",
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        if (!response.body) {
+          throw new Error("Response body is null")
+        }
+
+        console.log("✅ Stream connection opened via fetch")
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+
+        const processStream = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+
+              if (done) {
+                console.log("🔚 Stream ended")
+                break
+              }
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split("\n")
+              buffer = lines.pop() || "" // Keep the last incomplete line in buffer
+
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6) // Remove "data: " prefix
+                  if (data.trim() === "") continue // Skip empty data lines
+
+                  try {
+                    const eventData: StreamEvent = JSON.parse(data)
+                    console.log("📡 Stream event received:", eventData.type, eventData)
+                    onEvent(eventData)
+                  } catch (parseError) {
+                    console.error("❌ Failed to parse stream event:", parseError, "Raw data:", data)
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            if (error instanceof Error && error.name === "AbortError") {
+              console.log("🛑 Stream connection aborted")
+            } else {
+              console.error("❌ Stream processing error:", error)
+              onError(error)
+            }
+          }
+        }
+
+        processStream()
       } catch (error) {
-        console.error("❌ Failed to parse stream event:", error, "Raw data:", event.data)
+        console.error("❌ Stream connection error:", error)
         onError(error)
       }
     }
 
-    eventSource.onerror = (error) => {
-      console.error("❌ EventSource error:", error)
-      console.error("EventSource readyState:", eventSource.readyState)
+    // Start the connection
+    connectWithFetch()
 
-      // EventSource readyState values:
-      // 0 = CONNECTING
-      // 1 = OPEN
-      // 2 = CLOSED
+    // Create a mock EventSource object for compatibility
+    const mockEventSource = {
+      readyState: 1, // OPEN
+      close: () => {
+        console.log("🔌 Closing stream connection")
+        if (controller) {
+          controller.abort()
+        }
+      },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      url: fullUrl,
+      withCredentials: false,
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSED: 2,
+    } as EventSource
 
-      if (eventSource.readyState === EventSource.CLOSED) {
-        console.log("🔌 Stream connection closed")
-      }
-
-      onError(error)
-    }
-
-    return eventSource
+    return mockEventSource
   }
 
   async editMessage(conversationId: string, messageId: string, text: string): Promise<ApiResponse<Message>> {

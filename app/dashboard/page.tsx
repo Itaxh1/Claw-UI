@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,13 +29,13 @@ import {
   Activity,
   Paperclip,
   Loader2,
+  User,
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import { useAuth } from "@/hooks/useAuth"
 import { useConversations } from "@/hooks/useConversations"
 import { api } from "@/lib/api"
 import { FileUpload } from "@/components/file-upload"
-import { GamePreview } from "@/components/game-preview"
 import { MessageItem } from "@/components/message-item"
 import { StreamingStatus } from "@/components/streaming-status"
 
@@ -72,6 +72,8 @@ export default function Dashboard() {
   // State for custom resizable panels
   const [chatPanelWidth, setChatPanelWidth] = useState(25) // Default width percentage
   const [isResizing, setIsResizing] = useState(false)
+
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     console.log("🏠 Dashboard - Auth state:", {
@@ -119,6 +121,13 @@ export default function Dashboard() {
     const response = await api.healthCheck()
     if (response.success) {
       setSystemStatus(response.data)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
     }
   }
 
@@ -251,6 +260,13 @@ export default function Dashboard() {
     document.removeEventListener("mousemove", handleMouseMove)
     document.removeEventListener("mouseup", handleMouseUp)
   }, [handleMouseMove])
+
+  useEffect(() => {
+    // Ensure input stays focusable after file operations
+    if (inputRef.current && !isSending && !streamingState.isStreaming) {
+      inputRef.current.focus()
+    }
+  }, [attachedFiles, isSending, streamingState.isStreaming])
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -510,7 +526,7 @@ export default function Dashboard() {
 
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
+            <div className="space-y-1">
               {activeConversation?.messages.map((message) => (
                 <MessageItem
                   key={message._id}
@@ -525,47 +541,35 @@ export default function Dashboard() {
               <StreamingStatus streamingState={streamingState} onStop={stopGeneration} />
 
               {isSending && (
-                <div className="flex justify-start">
-                  <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-                      <span className="text-sm text-gray-600">Generating your game...</span>
+                <div className="flex justify-end mb-6">
+                  <div className="flex items-center space-x-3 max-w-[85%]">
+                    <div className="bg-blue-600 text-white rounded-2xl px-4 py-3">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-4 h-4 border-2 border-blue-300 border-t-white rounded-full animate-spin"></div>
+                        <span className="text-sm">Generating your game...</span>
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <User className="h-4 w-4 text-white" />
                     </div>
                   </div>
                 </div>
               )}
-
-              {/* Show game preview for latest response */}
-              {activeConversation?.messages &&
-                (() => {
-                  const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
-                  if (lastMessage?.role === "assistant") {
-                    const llmResponse = getLatestLLMResponse(lastMessage)
-                    if (llmResponse?.codeResponse) {
-                      return (
-                        <div className="mt-4">
-                          <GamePreview
-                            codeResponse={llmResponse.codeResponse}
-                            onDownload={() => handleDownloadCode(llmResponse.codeResponse?.downloadUrl)}
-                          />
-                        </div>
-                      )
-                    }
-                  }
-                  return null
-                })()}
             </div>
           </ScrollArea>
 
           {/* Chat Input */}
           <div className="p-4 border-t border-gray-200 bg-white space-y-3">
             {/* File Upload - now collapsible */}
-            <details className="text-xs text-gray-500">
-              <summary className="cursor-pointer hover:text-gray-700 flex items-center space-x-2">
+            <details className="text-xs text-gray-500" onToggle={(e) => e.stopPropagation()}>
+              <summary
+                className="cursor-pointer hover:text-gray-700 flex items-center space-x-2"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Paperclip className="h-4 w-4" />
                 <span>Attach Files ({attachedFiles.length})</span>
               </summary>
-              <div className="mt-2">
+              <div className="mt-2" onClick={(e) => e.stopPropagation()}>
                 <FileUpload files={attachedFiles} onFilesChange={setAttachedFiles} maxFiles={5} maxSize={50} />
               </div>
             </details>
@@ -573,12 +577,14 @@ export default function Dashboard() {
             {/* Message Input */}
             <div className="flex space-x-3">
               <Input
+                ref={inputRef}
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
                 placeholder="Describe your game idea... (e.g., 'Create a space shooter with boss battles')"
                 className="flex-1 border-gray-200 focus:border-gray-900 focus:ring-0"
-                onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
                 disabled={isSending || streamingState.isStreaming}
+                autoComplete="off"
               />
               <Button
                 onClick={handleSendMessage}
