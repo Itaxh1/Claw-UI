@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Send,
   Code,
@@ -29,6 +28,7 @@ import {
   Zap,
   Activity,
   Paperclip,
+  Loader2,
 } from "lucide-react"
 import dynamic from "next/dynamic"
 import { useAuth } from "@/hooks/useAuth"
@@ -37,6 +37,7 @@ import { api } from "@/lib/api"
 import { FileUpload } from "@/components/file-upload"
 import { GamePreview } from "@/components/game-preview"
 import { MessageItem } from "@/components/message-item"
+import { StreamingStatus } from "@/components/streaming-status"
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
@@ -48,23 +49,25 @@ export default function Dashboard() {
     activeConversation,
     messages, // This is now derived from activeConversation
     isLoading,
-    isSending,
+    streamingState,
     createConversation,
     loadConversation,
     sendMessage,
     editMessage,
+    stopGeneration,
     getLatestMessageContent,
     getLatestLLMResponse,
+    getCurrentStreamingCode,
   } = useConversations()
 
   const [inputMessage, setInputMessage] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [framework, setFramework] = useState("phaser.js")
   const [code, setCode] = useState("") // Changed to empty string
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop")
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [systemStatus, setSystemStatus] = useState<any>(null)
+  const [isSending, setIsSending] = useState(false) // Declare isSending variable
 
   // State for custom resizable panels
   const [chatPanelWidth, setChatPanelWidth] = useState(25) // Default width percentage
@@ -88,8 +91,16 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, authLoading, router, user])
 
-  // Update code when AI responds with code
+  // Update code when AI responds with code OR during streaming
   useEffect(() => {
+    // First check if we have streaming code
+    const streamingCode = getCurrentStreamingCode()
+    if (streamingCode) {
+      setCode(streamingCode)
+      return
+    }
+
+    // Otherwise check for completed messages
     if (activeConversation?.messages) {
       const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
       if (lastMessage?.role === "assistant") {
@@ -102,7 +113,7 @@ export default function Dashboard() {
         }
       }
     }
-  }, [activeConversation, getLatestLLMResponse])
+  }, [activeConversation, getLatestLLMResponse, getCurrentStreamingCode, streamingState])
 
   const loadSystemStatus = async () => {
     const response = await api.healthCheck()
@@ -112,8 +123,9 @@ export default function Dashboard() {
   }
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isSending) return
+    if (!inputMessage.trim() || isSending || streamingState.isStreaming) return
 
+    setIsSending(true) // Set isSending to true before sending message
     const content = inputMessage
     setInputMessage("")
 
@@ -127,14 +139,17 @@ export default function Dashboard() {
         currentConversation = newConversation // Use the newly created conversation
       } else {
         console.error("Failed to create new conversation.")
-        return // Stop if conversation creation failed
+        setIsSending(false) // Set isSending to false if conversation creation failed
+        return
       }
     }
 
     if (currentConversation) {
-      await sendMessage(content, framework, attachedFiles) // Pass framework and files correctly
+      // Remove framework parameter - API doesn't seem to use it based on the docs
+      await sendMessage(content, attachedFiles.length > 0 ? attachedFiles : undefined)
       setAttachedFiles([])
     }
+    setIsSending(false) // Set isSending to false after message is sent
   }
 
   const handleNewConversation = async () => {
@@ -142,13 +157,18 @@ export default function Dashboard() {
     await createConversation(title)
   }
 
-  const handleDownloadCode = async (downloadUrl?: string) => {
-    if (!downloadUrl && !activeConversation) return
+  const handleDownloadCode = async (downloadId?: string) => {
+    if (!downloadId && !streamingState.downloadId) {
+      console.warn("No download ID available")
+      return
+    }
 
-    const downloadId = downloadUrl ? downloadUrl.split("/").pop() : activeConversation?._id
-    if (!downloadId) return
+    const idToUse = downloadId || streamingState.downloadId
+    if (!idToUse) return
 
-    const blob = await api.downloadCode(downloadId)
+    console.log("📦 Downloading code with ID:", idToUse)
+
+    const blob = await api.downloadCode(idToUse)
 
     if (blob) {
       const url = URL.createObjectURL(blob)
@@ -159,6 +179,8 @@ export default function Dashboard() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+    } else {
+      console.error("Failed to download code")
     }
   }
 
@@ -352,7 +374,13 @@ export default function Dashboard() {
               <Share className="h-4 w-4 mr-2" />
               Share
             </Button>
-            <Button variant="ghost" size="sm" className="h-8" onClick={() => handleDownloadCode()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8"
+              onClick={() => handleDownloadCode()}
+              disabled={!streamingState.downloadId}
+            >
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
@@ -417,7 +445,13 @@ export default function Dashboard() {
               <Share className="h-4 w-4 mr-2" />
               Share
             </Button>
-            <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={() => handleDownloadCode()}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 bg-transparent"
+              onClick={() => handleDownloadCode()}
+              disabled={!streamingState.downloadId}
+            >
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
@@ -449,23 +483,6 @@ export default function Dashboard() {
               <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleNewConversation}>
                 <Plus className="h-4 w-4" />
               </Button>
-            </div>
-
-            {/* Framework Selector */}
-            <div className="mb-3">
-              <Select value={framework} onValueChange={setFramework}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="phaser.js">
-                    <div className="flex items-center space-x-2">
-                      <Gamepad2 className="h-3 w-3" />
-                      <span>Phaser.js (Recommended)</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
             </div>
 
             {/* Conversation List */}
@@ -504,6 +521,8 @@ export default function Dashboard() {
                   onDownloadAttachment={handleDownloadAttachment}
                 />
               ))}
+
+              <StreamingStatus streamingState={streamingState} onStop={stopGeneration} />
 
               {isSending && (
                 <div className="flex justify-start">
@@ -559,15 +578,19 @@ export default function Dashboard() {
                 placeholder="Describe your game idea... (e.g., 'Create a space shooter with boss battles')"
                 className="flex-1 border-gray-200 focus:border-gray-900 focus:ring-0"
                 onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
-                disabled={isSending}
+                disabled={isSending || streamingState.isStreaming}
               />
               <Button
                 onClick={handleSendMessage}
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700 px-4"
-                disabled={isSending || !inputMessage.trim()}
+                disabled={streamingState.isStreaming || isSending || !inputMessage.trim()}
               >
-                <Send className="h-4 w-4" />
+                {streamingState.isStreaming || isSending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </Button>
             </div>
 
@@ -624,14 +647,26 @@ export default function Dashboard() {
               <div
                 className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 ${getViewportClass()}`}
               >
-                <div className="w-full h-full bg-black flex items-center justify-center">
-                  <div className="text-center text-white">
-                    <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                    <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
-                    <p className="text-gray-400 mb-4">Your generated game will appear here</p>
-                    <div className="text-sm text-gray-500">Generate a game using the chat to see it in action!</div>
+                {streamingState.previewStatus?.status === "ready" && streamingState.previewStatus.url ? (
+                  <iframe
+                    src={streamingState.previewStatus.url}
+                    className="w-full h-full border-0"
+                    title="Game Preview"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-black flex items-center justify-center">
+                    <div className="text-center text-white">
+                      <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                      <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
+                      <p className="text-gray-400 mb-4">Your generated game will appear here</p>
+                      <div className="text-sm text-gray-500">
+                        {streamingState.previewStatus?.status === "building"
+                          ? "Building preview..."
+                          : "Generate a game using the chat to see it in action!"}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
