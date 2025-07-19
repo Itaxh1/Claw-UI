@@ -108,7 +108,7 @@ export default function Dashboard() {
       if (lastMessage?.role === "assistant") {
         const llmResponse = getLatestLLMResponse(lastMessage)
         if (llmResponse?.codeResponse?.files) {
-          const mainFile = llmResponse.codeResponse.files.find((f) => f.type === "js" || f.path.includes("game"))
+          const mainFile = llmResponse.codeResponse.files.find((f) => f.type === "source" || f.path.includes("main"))
           if (mainFile) {
             setCode(mainFile.content)
           }
@@ -134,7 +134,7 @@ export default function Dashboard() {
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isSending || streamingState.isStreaming) return
 
-    setIsSending(true) // Set isSending to true before sending message
+    setIsSending(true)
     const content = inputMessage
     setInputMessage("")
 
@@ -142,23 +142,41 @@ export default function Dashboard() {
 
     // Create new conversation if none exists
     if (!currentConversation) {
+      console.log("🔄 No active conversation, creating new one...")
       const title = content.slice(0, 50) + (content.length > 50 ? "..." : "")
-      const newConversation = await createConversation(title) // Capture the new conversation
-      if (newConversation) {
-        currentConversation = newConversation // Use the newly created conversation
-      } else {
-        console.error("Failed to create new conversation.")
-        setIsSending(false) // Set isSending to false if conversation creation failed
+
+      try {
+        const newConversation = await createConversation(title)
+        if (newConversation) {
+          currentConversation = newConversation
+          console.log("✅ New conversation created:", newConversation._id)
+        } else {
+          console.error("❌ Failed to create new conversation")
+          setIsSending(false)
+          // Show error to user
+          alert("Failed to create conversation. Please try again.")
+          return
+        }
+      } catch (error) {
+        console.error("💥 Error creating conversation:", error)
+        setIsSending(false)
+        alert("Error creating conversation. Please check your connection and try again.")
         return
       }
     }
 
     if (currentConversation) {
-      // Remove framework parameter - API doesn't seem to use it based on the docs
-      await sendMessage(content, attachedFiles.length > 0 ? attachedFiles : undefined)
-      setAttachedFiles([])
+      console.log("📤 Sending message to conversation:", currentConversation._id)
+      try {
+        await sendMessage(content, attachedFiles.length > 0 ? attachedFiles : undefined)
+        setAttachedFiles([])
+      } catch (error) {
+        console.error("💥 Error sending message:", error)
+        alert("Failed to send message. Please try again.")
+      }
     }
-    setIsSending(false) // Set isSending to false after message is sent
+
+    setIsSending(false)
   }
 
   const handleNewConversation = async () => {
@@ -166,18 +184,16 @@ export default function Dashboard() {
     await createConversation(title)
   }
 
-  const handleDownloadCode = async (downloadId?: string) => {
-    if (!downloadId && !streamingState.downloadId) {
+  const handleDownloadCode = async () => {
+    const downloadId = streamingState.downloadId
+    if (!downloadId) {
       console.warn("No download ID available")
       return
     }
 
-    const idToUse = downloadId || streamingState.downloadId
-    if (!idToUse) return
+    console.log("📦 Downloading code with ID:", downloadId)
 
-    console.log("📦 Downloading code with ID:", idToUse)
-
-    const blob = await api.downloadCode(idToUse)
+    const blob = await api.downloadCode(downloadId)
 
     if (blob) {
       const url = URL.createObjectURL(blob)
@@ -339,16 +355,9 @@ export default function Dashboard() {
                 {activeConversation.title}
               </Badge>
               {systemStatus && (
-                <Badge
-                  variant={
-                    systemStatus.services.llmProviders.some((p: any) => p.status === "available")
-                      ? "default"
-                      : "secondary"
-                  }
-                  className="text-xs"
-                >
+                <Badge variant={systemStatus.status === "ok" ? "default" : "secondary"} className="text-xs">
                   <Activity className="h-3 w-3 mr-1" />
-                  {systemStatus.services.llmProviders.filter((p: any) => p.status === "available").length} LLMs
+                  {systemStatus.status}
                 </Badge>
               )}
             </div>
@@ -394,7 +403,7 @@ export default function Dashboard() {
               variant="ghost"
               size="sm"
               className="h-8"
-              onClick={() => handleDownloadCode()}
+              onClick={handleDownloadCode}
               disabled={!streamingState.downloadId}
             >
               <Download className="h-4 w-4 mr-2" />
@@ -465,7 +474,7 @@ export default function Dashboard() {
               variant="outline"
               size="sm"
               className="flex-1 bg-transparent"
-              onClick={() => handleDownloadCode()}
+              onClick={handleDownloadCode}
               disabled={!streamingState.downloadId}
             >
               <Download className="h-4 w-4 mr-2" />
@@ -531,8 +540,6 @@ export default function Dashboard() {
                 <MessageItem
                   key={message._id}
                   message={message}
-                  getLatestContent={getLatestMessageContent}
-                  getLatestLLMResponse={getLatestLLMResponse}
                   onEdit={handleEditMessage}
                   onDownloadAttachment={handleDownloadAttachment}
                 />

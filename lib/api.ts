@@ -19,34 +19,25 @@ export interface CodeFile {
   content: string
   type: string
   language: string
-  size: number
-  description: string
 }
 
 export interface CodeResponse {
   files: CodeFile[]
   framework: string
   language: string
-  gameFeatures: string[]
-  downloadUrl: string
   previewUrl?: string
-  instructions: string
+  downloadUrl?: string
 }
 
 export interface LLMResponse {
   version: number
   provider: string
   textResponse: string
-  codeResponse?: CodeResponse
   thinking?: string
+  codeResponse?: CodeResponse
   status: "generating" | "completed" | "error" | "verified"
   error?: string
   createdAt: string
-  metrics?: {
-    generationTime: number
-    codeLines: number
-    filesGenerated: number
-  }
 }
 
 export interface Attachment {
@@ -62,12 +53,17 @@ export interface Attachment {
 
 export interface Message {
   _id: string
-  conversationId: string
   role: "user" | "assistant"
-  content: MessageContent[]
+  content?: MessageContent[]
   attachments?: Attachment[]
   llmResponse?: LLMResponse[]
   createdAt: string
+  updatedAt: string
+}
+
+export interface ConversationSummary {
+  _id: string
+  title: string
   updatedAt: string
 }
 
@@ -78,8 +74,6 @@ export interface Conversation {
   messages: Message[]
   createdAt: string
   updatedAt: string
-  messageCount?: number
-  lastMessage?: string
 }
 
 export interface ApiResponse<T> {
@@ -87,7 +81,6 @@ export interface ApiResponse<T> {
   data?: T
   error?: string
   message?: string
-  timestamp?: string
 }
 
 export interface StreamInitResponse {
@@ -98,6 +91,7 @@ export interface StreamInitResponse {
 
 export interface StreamEvent {
   type:
+    | "connected"
     | "thinking"
     | "thinking_detail"
     | "text_start"
@@ -118,72 +112,26 @@ export interface StreamEvent {
     | "end"
   content?: string
   chunk?: string
-  fileName?: string
+  filename?: string
+  fileName?: string // Keep both for compatibility
   file?: CodeFile
   totalFiles?: number
+  progress?: number
+  size?: number
   url?: string
   previewId?: string
   downloadId?: string
   response?: LLMResponse
   error?: string
-}
-
-export interface HealthStatus {
-  status: "ok" | "degraded" | "down"
-  timestamp: string
-  uptime: number
-  version: string
-  responseTime: number
-  services: {
-    database: "connected" | "disconnected" | "error"
-    llmProviders: Array<{
-      name: string
-      status: "available" | "unavailable"
-      responseTime: number
-    }>
-  }
-  environment: string
-  features: {
-    phaserGeneration: boolean
-    fileUploads: boolean
-    messageVersioning: boolean
-    selfCorrection: boolean
-    mobileOptimization: boolean
-  }
-}
-
-export interface ApiStatus {
-  api: {
-    name: string
-    version: string
-    description: string
-    documentation: string
-    repository: string
-  }
-  capabilities: {
-    gameFrameworks: string[]
-    llmProviders: string[]
-    features: string[]
-    gameTypes: string[]
-  }
-  limits: {
-    maxFileSize: string
-    maxFilesPerMessage: number
-    maxConversationsPerUser: number
-    maxMessageLength: number
-    rateLimitGeneral: string
-    rateLimitGeneration: string
-    tokenExpiry: string
-  }
-  timestamp: string
+  details?: string
+  buildLogs?: string[]
+  timestamp?: string
 }
 
 export interface PreviewStatus {
-  previewId: string
   status: "building" | "ready" | "error"
   url?: string
-  error?: string
-  buildTime?: number
+  port?: number
 }
 
 class ApiClient {
@@ -211,37 +159,40 @@ class ApiClient {
       })
 
       let rawData: any
-      let responseText: string | null = null
+
+      // Clone the response to avoid "body already consumed" error
+      const responseClone = response.clone()
 
       try {
         rawData = await response.json()
       } catch (jsonError) {
+        console.error("JSON parsing failed:", jsonError)
         try {
-          responseText = await response.text()
-          console.error("JSON parsing failed, raw response text:", responseText)
+          const responseText = await responseClone.text()
+          console.error("Raw response text:", responseText)
+          rawData = { error: responseText || "Invalid JSON response" }
         } catch (textError) {
           console.error("Failed to read response as text:", textError)
+          rawData = { error: "Failed to parse response" }
         }
-        rawData = {}
       }
 
       if (!response.ok) {
+        console.error(`API Error ${response.status}:`, rawData)
         return {
           success: false,
-          error: rawData.error || responseText || "Unknown error from server",
-          message: rawData.message || responseText || rawData.error || "An error occurred",
+          error: rawData.error || `HTTP ${response.status}: ${response.statusText}`,
+          message: rawData.message || rawData.error || "An error occurred",
         }
       }
 
-      const payload = rawData.data !== undefined ? rawData.data : rawData
-
       return {
-        success: rawData.success !== false, // Default to true if not explicitly false
-        data: payload as T,
+        success: rawData.success !== false,
+        data: rawData.data as T,
         message: rawData.message,
-        timestamp: rawData.timestamp,
       }
     } catch (error) {
+      console.error("Network error:", error)
       return {
         success: false,
         error: "NetworkError",
@@ -255,16 +206,28 @@ class ApiClient {
     username: string,
     email: string,
     password: string,
-  ): Promise<ApiResponse<{ user: User; token: string }>> {
-    const response = await this.request<{ user: User; token: string }>("/api/auth/register", {
+  ): Promise<ApiResponse<{ _id: string; username: string; email: string; createdAt: string; updatedAt: string }>> {
+    const response = await this.request<{
+      _id: string
+      username: string
+      email: string
+      createdAt: string
+      updatedAt: string
+    }>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify({ username, email, password }),
     })
     return response
   }
 
-  async login(email: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
-    const response = await this.request<{ user: User; token: string }>("/api/auth/login", {
+  async login(
+    email: string,
+    password: string,
+  ): Promise<ApiResponse<{ token: string; user: { _id: string; username: string; email: string } }>> {
+    const response = await this.request<{
+      token: string
+      user: { _id: string; username: string; email: string }
+    }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     })
@@ -275,7 +238,7 @@ class ApiClient {
     return this.request("/api/auth/profile")
   }
 
-  // Conversations
+  // Conversations - Updated to match new API structure
   async createConversation(title: string): Promise<ApiResponse<Conversation>> {
     return this.request("/api/conversations/", {
       method: "POST",
@@ -283,7 +246,7 @@ class ApiClient {
     })
   }
 
-  async getConversations(): Promise<ApiResponse<Conversation[]>> {
+  async getConversations(): Promise<ApiResponse<ConversationSummary[]>> {
     return this.request("/api/conversations/")
   }
 
@@ -291,17 +254,23 @@ class ApiClient {
     return this.request(`/api/conversations/${conversationId}`)
   }
 
-  // Messages - Updated to match API spec exactly
+  async deleteConversation(conversationId: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request(`/api/conversations/${conversationId}`, {
+      method: "DELETE",
+    })
+  }
+
+  // Messages - Updated to match new API spec
   async sendMessage(conversationId: string, text: string, files?: File[]): Promise<ApiResponse<StreamInitResponse>> {
     const formData = new FormData()
 
-    // Add text field
+    // Add text field (not content)
     formData.append("text", text)
 
-    // Add files if provided
+    // Add files if provided - using multipart/form-data
     if (files && files.length > 0) {
       files.forEach((file) => {
-        formData.append("attachments", file) // Using "attachments" as per API docs
+        formData.append("files", file) // Updated field name to match docs
       })
     }
 
@@ -311,7 +280,7 @@ class ApiClient {
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
-          // Don't set Content-Type for FormData
+          // Don't set Content-Type for FormData - browser will set it with boundary
         },
         body: formData,
       })
@@ -321,7 +290,9 @@ class ApiClient {
         rawData = await response.json()
       } catch (jsonError) {
         console.error("Failed to parse JSON response:", jsonError)
-        rawData = {}
+        const responseText = await response.text()
+        console.error("Raw response:", responseText)
+        rawData = { error: "Failed to parse response", details: responseText }
       }
 
       console.log("📤 Send message response:", rawData)
@@ -349,7 +320,7 @@ class ApiClient {
     }
   }
 
-  // Create EventSource connection for streaming - Using fetch with ReadableStream for auth headers
+  // Create EventSource connection for streaming - Updated URL structure
   createStreamConnection(
     conversationId: string,
     messageId: string,
@@ -368,9 +339,7 @@ class ApiClient {
       url: fullUrl,
     })
 
-    // Since EventSource doesn't support custom headers, we need to use a different approach
-    // We'll create a custom EventSource-like implementation using fetch
-    const eventSource: EventSource | null = null
+    // Custom EventSource implementation using fetch for auth headers
     let controller: AbortController | null = null
 
     const connectWithFetch = async () => {
@@ -413,12 +382,12 @@ class ApiClient {
 
               buffer += decoder.decode(value, { stream: true })
               const lines = buffer.split("\n")
-              buffer = lines.pop() || "" // Keep the last incomplete line in buffer
+              buffer = lines.pop() || ""
 
               for (const line of lines) {
                 if (line.startsWith("data: ")) {
-                  const data = line.slice(6) // Remove "data: " prefix
-                  if (data.trim() === "") continue // Skip empty data lines
+                  const data = line.slice(6)
+                  if (data.trim() === "") continue
 
                   try {
                     const eventData: StreamEvent = JSON.parse(data)
@@ -447,12 +416,11 @@ class ApiClient {
       }
     }
 
-    // Start the connection
     connectWithFetch()
 
-    // Create a mock EventSource object for compatibility
+    // Mock EventSource object for compatibility
     const mockEventSource = {
-      readyState: 1, // OPEN
+      readyState: 1,
       close: () => {
         console.log("🔌 Closing stream connection")
         if (controller) {
@@ -482,7 +450,13 @@ class ApiClient {
     })
   }
 
-  // File Attachments
+  async deleteMessage(conversationId: string, messageId: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request(`/api/conversations/${conversationId}/messages/${messageId}`, {
+      method: "DELETE",
+    })
+  }
+
+  // File Attachments - Updated endpoints
   async getMessageAttachments(conversationId: string, messageId: string): Promise<ApiResponse<Attachment[]>> {
     return this.request(`/api/conversations/${conversationId}/messages/${messageId}/attachments`)
   }
@@ -508,7 +482,7 @@ class ApiClient {
     }
   }
 
-  // Downloads
+  // Downloads - Updated endpoint structure
   async downloadCode(downloadId: string): Promise<Blob | null> {
     try {
       const token = this.getToken()
@@ -527,13 +501,13 @@ class ApiClient {
     }
   }
 
-  // Preview Status
+  // Preview Status - Updated endpoint structure
   async getPreviewStatus(previewId: string): Promise<ApiResponse<PreviewStatus>> {
     return this.request(`/api/preview/${previewId}/status`)
   }
 
-  // System
-  async healthCheck(): Promise<ApiResponse<HealthStatus>> {
+  // System Health
+  async healthCheck(): Promise<ApiResponse<any>> {
     return this.request("/health")
   }
 }

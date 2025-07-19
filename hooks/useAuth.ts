@@ -15,7 +15,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ children }: { ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -29,19 +29,18 @@ export function AuthProvider({ children }: { ReactNode }) {
       hasToken: !!token,
       hasSavedUser: !!savedUser,
       tokenPreview: token ? token.substring(0, 20) + "..." : "N/A",
-      savedUserRaw: savedUser, // Log raw value to see if it's "undefined"
+      savedUserRaw: savedUser,
     })
 
     if (token && savedUser) {
       try {
         let userData: User | null = null
         if (savedUser === "undefined" || savedUser === null) {
-          // Explicitly handle the string "undefined" or null which causes JSON.parse error
           console.warn(
             "⚠️ AuthProvider - Found 'undefined' or null string in localStorage for 'claw-user', clearing it.",
           )
           localStorage.removeItem("claw-user")
-          localStorage.removeItem("claw-token") // Clear token too if user data is corrupted
+          localStorage.removeItem("claw-token")
         } else {
           userData = JSON.parse(savedUser)
         }
@@ -55,10 +54,6 @@ export function AuthProvider({ children }: { ReactNode }) {
           localStorage.removeItem("claw-user")
         }
         setIsLoading(false)
-
-        // Optionally verify the token is still valid by loading profile
-        // This can add an extra API call on every page load, enable if strict token validation is needed
-        // loadUserProfile()
       } catch (parseError) {
         console.error("❌ AuthProvider - Error parsing saved user from localStorage:", parseError)
         localStorage.removeItem("claw-token")
@@ -76,14 +71,14 @@ export function AuthProvider({ children }: { ReactNode }) {
 
   const loadUserProfile = async () => {
     console.log("🔄 Loading user profile via API...")
-    setIsLoading(true) // Ensure loading state is true during API call
+    setIsLoading(true)
     const response = await api.getProfile()
     console.log("📥 Profile API response:", response)
 
     if (response.success && response.data) {
       console.log("✅ User profile loaded from API:", response.data)
       setUser(response.data)
-      localStorage.setItem("claw-user", JSON.stringify(response.data)) // Update localStorage with valid user data
+      localStorage.setItem("claw-user", JSON.stringify(response.data))
     } else {
       console.log("❌ Failed to load profile from API, clearing tokens (token might be expired or invalid).")
       localStorage.removeItem("claw-token")
@@ -101,23 +96,14 @@ export function AuthProvider({ children }: { ReactNode }) {
     console.log("📥 Registration API response:", response)
 
     if (response.success && response.data) {
-      const { user: userData, token } = response.data
-      console.log("✅ Registration successful:", {
-        userData,
-        tokenPreview: token ? token.substring(0, 20) + "..." : "N/A",
-      })
+      // Updated: Registration now only returns user data, no token
+      const userData = response.data
+      console.log("✅ Registration successful:", userData)
 
-      setUser(userData)
-      localStorage.setItem("claw-token", token)
-      localStorage.setItem("claw-user", JSON.stringify(userData))
-
-      console.log("💾 Saved to localStorage after registration:", {
-        tokenPreview: localStorage.getItem("claw-token")?.substring(0, 20) + "...",
-        user: JSON.parse(localStorage.getItem("claw-user") || "{}"),
-      })
-
+      // After registration, we need to login to get the token
+      const loginSuccess = await login(email, password)
       setIsLoading(false)
-      return true
+      return loginSuccess
     }
 
     console.log("❌ Registration failed:", response.message || response.error)
@@ -135,12 +121,9 @@ export function AuthProvider({ children }: { ReactNode }) {
       const response = await api.login(email, password)
       console.log("📥 Login API response:", response)
 
-      // The `response.data` should now directly contain { user, token }
-      // due to the fix in `api.ts`'s `request` method.
       if (response.success && response.data) {
         const { user: userData, token } = response.data
 
-        // Defensive check for token (still good practice)
         if (token) {
           console.log("✅ Login successful - extracted data:", {
             userData,
@@ -148,14 +131,10 @@ export function AuthProvider({ children }: { ReactNode }) {
             tokenLength: token.length,
           })
 
-          // Set user state
           setUser(userData)
-
-          // Save to localStorage
           localStorage.setItem("claw-token", token)
           localStorage.setItem("claw-user", JSON.stringify(userData))
 
-          // Verify localStorage save
           const savedToken = localStorage.getItem("claw-token")
           const savedUser = localStorage.getItem("claw-user")
           console.log("💾 Verification - saved to localStorage:", {

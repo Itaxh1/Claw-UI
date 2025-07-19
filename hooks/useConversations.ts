@@ -1,25 +1,35 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { api, type Conversation, type Message, type LLMResponse, type StreamEvent, type PreviewStatus } from "@/lib/api"
+import {
+  api,
+  type Conversation,
+  type ConversationSummary,
+  type Message,
+  type LLMResponse,
+  type StreamEvent,
+  type PreviewStatus,
+} from "@/lib/api"
 import { useAuth } from "./useAuth"
 
 interface StreamingState {
   isStreaming: boolean
   currentThinking: string
   currentTextChunks: string[]
-  currentFiles: { [fileName: string]: { content: string; isComplete: boolean } }
+  currentFiles: { [fileName: string]: { content: string; isComplete: boolean; size?: number } }
   totalFiles: number
   completedFiles: number
-  previewId?: string
+  progress: number
   previewStatus?: PreviewStatus
+  downloadUrl?: string
   downloadId?: string
   error?: string
+  buildLogs: string[]
 }
 
 export function useConversations() {
   const { isAuthenticated } = useAuth()
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [streamingState, setStreamingState] = useState<StreamingState>({
@@ -29,10 +39,11 @@ export function useConversations() {
     currentFiles: {},
     totalFiles: 0,
     completedFiles: 0,
+    progress: 0,
+    buildLogs: [],
   })
 
   const eventSourceRef = useRef<EventSource | null>(null)
-  const previewPollingRef = useRef<NodeJS.Timeout | null>(null)
 
   // Load conversations on auth status change
   useEffect(() => {
@@ -41,14 +52,11 @@ export function useConversations() {
     }
   }, [isAuthenticated])
 
-  // Cleanup EventSource and polling on unmount
+  // Cleanup EventSource on unmount
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
-      }
-      if (previewPollingRef.current) {
-        clearInterval(previewPollingRef.current)
       }
     }
   }, [])
@@ -73,18 +81,37 @@ export function useConversations() {
   }
 
   const createConversation = async (title: string) => {
+    console.log("🔄 Creating new conversation:", title)
     setIsLoading(true)
-    const response = await api.createConversation(title)
 
-    if (response.success && response.data) {
-      const newConversation = response.data
-      setConversations((prev) => [newConversation, ...(prev || [])])
-      setActiveConversation(newConversation)
+    try {
+      const response = await api.createConversation(title)
+      console.log("📥 Create conversation response:", response)
+
+      if (response.success && response.data) {
+        const newConversation = response.data
+        console.log("✅ Conversation created successfully:", newConversation)
+
+        // Add to conversations list (convert to summary format)
+        const conversationSummary: ConversationSummary = {
+          _id: newConversation._id,
+          title: newConversation.title,
+          updatedAt: newConversation.updatedAt,
+        }
+        setConversations((prev) => [conversationSummary, ...(prev || [])])
+        setActiveConversation(newConversation)
+        setIsLoading(false)
+        return newConversation
+      } else {
+        console.error("❌ Failed to create conversation:", response.error || response.message)
+        setIsLoading(false)
+        return null
+      }
+    } catch (error) {
+      console.error("💥 Conversation creation error:", error)
       setIsLoading(false)
-      return newConversation
+      return null
     }
-    setIsLoading(false)
-    return null
   }
 
   const loadConversation = async (conversationId: string) => {
@@ -106,37 +133,20 @@ export function useConversations() {
       currentFiles: {},
       totalFiles: 0,
       completedFiles: 0,
+      progress: 0,
+      buildLogs: [],
     })
   }
-
-  // Poll preview status
-  const pollPreviewStatus = useCallback(async (previewId: string) => {
-    try {
-      const response = await api.getPreviewStatus(previewId)
-      if (response.success && response.data) {
-        setStreamingState((prev) => ({
-          ...prev,
-          previewStatus: response.data,
-        }))
-
-        // Stop polling if preview is ready or errored
-        if (response.data.status === "ready" || response.data.status === "error") {
-          if (previewPollingRef.current) {
-            clearInterval(previewPollingRef.current)
-            previewPollingRef.current = null
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Failed to poll preview status:", error)
-    }
-  }, [])
 
   const handleStreamEvent = useCallback(
     (event: StreamEvent) => {
       console.log("📡 Processing stream event:", event.type, event)
 
       switch (event.type) {
+        case "connected":
+          console.log("🔗 Stream connected at:", event.timestamp)
+          break
+
         case "thinking":
           setStreamingState((prev) => ({
             ...prev,
@@ -155,46 +165,51 @@ export function useConversations() {
           setStreamingState((prev) => ({
             ...prev,
             currentTextChunks: [],
+            currentThinking: event.content || "📝 Generating documentation...",
           }))
           break
 
         case "text_chunk":
           setStreamingState((prev) => ({
             ...prev,
-            currentTextChunks: [...prev.currentTextChunks, event.chunk || ""],
+            currentTextChunks: [...prev.currentTextChunks, event.content || ""],
           }))
           break
 
         case "code_start":
           setStreamingState((prev) => ({
             ...prev,
-            totalFiles: event.totalFiles || 0,
+            currentThinking: event.content || "💻 Writing game code...",
+            totalFiles: 0,
             completedFiles: 0,
             currentFiles: {},
           }))
           break
 
         case "file_start":
-          if (event.fileName) {
+          const fileName = event.filename || event.fileName
+          if (fileName) {
             setStreamingState((prev) => ({
               ...prev,
               currentFiles: {
                 ...prev.currentFiles,
-                [event.fileName!]: { content: "", isComplete: false },
+                [fileName]: { content: "", isComplete: false },
               },
+              progress: event.progress || prev.progress,
             }))
           }
           break
 
         case "file_chunk":
-          if (event.fileName && event.chunk) {
+          const chunkFileName = event.filename || event.fileName
+          if (chunkFileName && event.content) {
             setStreamingState((prev) => ({
               ...prev,
               currentFiles: {
                 ...prev.currentFiles,
-                [event.fileName!]: {
-                  ...prev.currentFiles[event.fileName!],
-                  content: (prev.currentFiles[event.fileName!]?.content || "") + event.chunk,
+                [chunkFileName]: {
+                  ...prev.currentFiles[chunkFileName],
+                  content: (prev.currentFiles[chunkFileName]?.content || "") + event.content,
                 },
               },
             }))
@@ -202,50 +217,63 @@ export function useConversations() {
           break
 
         case "file_complete":
-          if (event.fileName) {
+          const completeFileName = event.filename || event.fileName
+          if (completeFileName) {
             setStreamingState((prev) => ({
               ...prev,
               completedFiles: prev.completedFiles + 1,
               currentFiles: {
                 ...prev.currentFiles,
-                [event.fileName!]: {
-                  ...prev.currentFiles[event.fileName!],
+                [completeFileName]: {
+                  ...prev.currentFiles[completeFileName],
                   isComplete: true,
+                  size: event.size,
                 },
               },
             }))
           }
           break
 
+        case "verification":
+          setStreamingState((prev) => ({
+            ...prev,
+            currentThinking: event.content || "✅ Verifying code quality and dependencies...",
+          }))
+          break
+
         case "preview_start":
           setStreamingState((prev) => ({
             ...prev,
-            previewStatus: { previewId: "", status: "building" },
+            currentThinking: event.content || "🚀 Setting up Vite development environment...",
+            previewStatus: { status: "building" },
           }))
           break
 
         case "preview_ready":
-          if (event.url) {
-            setStreamingState((prev) => ({
-              ...prev,
-              previewStatus: {
-                previewId: event.previewId || "",
-                status: "ready",
-                url: event.url,
-              },
-            }))
-          }
+          setStreamingState((prev) => ({
+            ...prev,
+            previewStatus: {
+              status: "ready",
+              url: event.url,
+            },
+            buildLogs: event.buildLogs || [],
+          }))
           break
 
         case "download_ready":
-          if (event.url) {
-            // Extract download ID from URL
-            const downloadId = event.url.split("/").pop()
-            setStreamingState((prev) => ({
-              ...prev,
-              downloadId: downloadId,
-            }))
-          }
+          setStreamingState((prev) => ({
+            ...prev,
+            downloadUrl: event.url,
+            downloadId: event.downloadId,
+          }))
+          break
+
+        case "generation_complete":
+          setStreamingState((prev) => ({
+            ...prev,
+            progress: event.progress || 100,
+            currentThinking: "✅ Generation completed!",
+          }))
           break
 
         case "complete":
@@ -253,6 +281,7 @@ export function useConversations() {
           setStreamingState((prev) => ({
             ...prev,
             isStreaming: false,
+            progress: 100,
           }))
           // Reload conversation to get the final message
           if (activeConversation) {
@@ -277,6 +306,16 @@ export function useConversations() {
           }
           break
 
+        case "preview_error":
+          console.error("❌ Preview error:", event.error)
+          setStreamingState((prev) => ({
+            ...prev,
+            previewStatus: { status: "error" },
+            error: event.error,
+            buildLogs: event.buildLogs || [],
+          }))
+          break
+
         case "end":
           console.log("🔚 Stream ended")
           setStreamingState((prev) => ({
@@ -289,26 +328,13 @@ export function useConversations() {
           }
           break
 
-        case "verification":
-          setStreamingState((prev) => ({
-            ...prev,
-            currentThinking: "Verifying code quality...",
-          }))
-          break
-
-        case "generation_complete":
-          setStreamingState((prev) => ({
-            ...prev,
-            currentThinking: "Generation completed!",
-          }))
-          break
-
         case "ping":
           // Keep-alive event, ignore
+          console.log("💓 Stream ping at:", event.timestamp)
           break
       }
     },
-    [activeConversation, pollPreviewStatus],
+    [activeConversation],
   )
 
   const sendMessage = useCallback(
@@ -320,12 +346,6 @@ export function useConversations() {
         console.log("🔌 Closing existing stream connection")
         eventSourceRef.current.close()
         eventSourceRef.current = null
-      }
-
-      // Clear any existing preview polling
-      if (previewPollingRef.current) {
-        clearInterval(previewPollingRef.current)
-        previewPollingRef.current = null
       }
 
       // Reset and start streaming state
@@ -397,19 +417,21 @@ export function useConversations() {
       eventSourceRef.current.close()
       eventSourceRef.current = null
     }
-    if (previewPollingRef.current) {
-      clearInterval(previewPollingRef.current)
-      previewPollingRef.current = null
-    }
     setStreamingState((prev) => ({
       ...prev,
       isStreaming: false,
     }))
   }, [])
 
+  // Helper functions for message content
   const getLatestMessageContent = (message: Message): string => {
-    if (!message.content || message.content.length === 0) return ""
-    return message.content[message.content.length - 1].text
+    if (message.role === "user") {
+      if (!message.content || message.content.length === 0) return ""
+      return message.content[message.content.length - 1].text
+    }
+    // For assistant messages, return the text response from LLM
+    if (!message.llmResponse || message.llmResponse.length === 0) return ""
+    return message.llmResponse[message.llmResponse.length - 1].textResponse || ""
   }
 
   const getLatestLLMResponse = (message: Message): LLMResponse | null => {
@@ -420,7 +442,7 @@ export function useConversations() {
   // Get current streaming code for the editor
   const getCurrentStreamingCode = (): string => {
     const files = Object.values(streamingState.currentFiles)
-    const mainFile = files.find((f) => f.content.includes("Phaser.Game") || f.content.includes("game"))
+    const mainFile = files.find((f) => f.content.includes("Phaser.Game") || f.content.includes("main.js"))
     return mainFile?.content || files[0]?.content || ""
   }
 

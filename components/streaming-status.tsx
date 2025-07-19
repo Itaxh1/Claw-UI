@@ -3,26 +3,36 @@
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
-import { Brain, Code, FileText, Eye, Download, X, CheckCircle, AlertCircle, Loader2, ExternalLink } from "lucide-react"
+import {
+  Brain,
+  Code,
+  FileText,
+  Eye,
+  Download,
+  X,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  ExternalLink,
+  Zap,
+} from "lucide-react"
 
 interface StreamingStatusProps {
   streamingState: {
     isStreaming: boolean
     currentThinking: string
     currentTextChunks: string[]
-    currentFiles: { [fileName: string]: { content: string; isComplete: boolean } }
+    currentFiles: { [fileName: string]: { content: string; isComplete: boolean; size?: number } }
     totalFiles: number
     completedFiles: number
-    previewId?: string
+    progress: number
     previewStatus?: {
-      previewId: string
       status: "building" | "ready" | "error"
       url?: string
-      error?: string
-      buildTime?: number
     }
-    downloadId?: string
+    downloadUrl?: string
     error?: string
+    buildLogs: string[]
   }
   onStop: () => void
 }
@@ -32,12 +42,13 @@ export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps
     !streamingState.isStreaming &&
     !streamingState.error &&
     !streamingState.previewStatus &&
-    !streamingState.downloadId
+    !streamingState.downloadUrl
   ) {
     return null
   }
 
-  const progress = streamingState.totalFiles > 0 ? (streamingState.completedFiles / streamingState.totalFiles) * 100 : 0
+  const fileCount = Object.keys(streamingState.currentFiles).length
+  const completedFileCount = Object.values(streamingState.currentFiles).filter((f) => f.isComplete).length
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
@@ -79,31 +90,35 @@ export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps
         </div>
       )}
 
-      {/* Code Generation Progress */}
-      {streamingState.totalFiles > 0 && (
+      {/* Overall Progress */}
+      {streamingState.progress > 0 && (
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium">Overall Progress</span>
+            <span className="text-xs text-gray-500">{streamingState.progress}%</span>
+          </div>
+          <Progress value={streamingState.progress} className="h-2" />
+        </div>
+      )}
+
+      {/* File Generation Progress */}
+      {fileCount > 0 && (
         <div className="mb-3">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center space-x-2">
               <Code className="h-4 w-4 text-blue-500" />
               <span className="text-sm font-medium">
-                Generating Code ({streamingState.completedFiles}/{streamingState.totalFiles} files)
+                Generating Files ({completedFileCount}/{fileCount})
               </span>
             </div>
-            <span className="text-xs text-gray-500">{Math.round(progress)}%</span>
           </div>
-          <Progress value={progress} className="h-2" />
-        </div>
-      )}
-
-      {/* Current Files */}
-      {Object.keys(streamingState.currentFiles).length > 0 && (
-        <div className="mb-3">
           <div className="space-y-1">
             {Object.entries(streamingState.currentFiles).map(([fileName, file]) => (
               <div key={fileName} className="flex items-center space-x-2 text-xs">
                 <div className={`w-2 h-2 rounded-full ${file.isComplete ? "bg-green-500" : "bg-yellow-500"}`} />
                 <FileText className="h-3 w-3 text-gray-400" />
-                <span className="text-gray-600">{fileName}</span>
+                <span className="text-gray-600 flex-1 truncate">{fileName}</span>
+                {file.size && <span className="text-gray-400">{(file.size / 1024).toFixed(1)}KB</span>}
                 {file.isComplete && <CheckCircle className="h-3 w-3 text-green-500" />}
               </div>
             ))}
@@ -111,7 +126,7 @@ export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps
         </div>
       )}
 
-      {/* Text Chunks */}
+      {/* Text Generation */}
       {streamingState.currentTextChunks.length > 0 && (
         <div className="mb-3">
           <div className="bg-gray-50 rounded p-2 text-xs text-gray-600 max-h-20 overflow-y-auto">
@@ -136,7 +151,7 @@ export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps
               }
               className="text-xs"
             >
-              {streamingState.previewStatus.status === "building" && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              {streamingState.previewStatus.status === "building" && <Zap className="h-3 w-3 mr-1" />}
               {streamingState.previewStatus.status}
             </Badge>
           </div>
@@ -153,16 +168,30 @@ export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps
             </Button>
           )}
 
-          {streamingState.previewStatus.status === "error" && streamingState.previewStatus.error && (
+          {streamingState.previewStatus.status === "error" && (
             <div className="bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700">
-              {streamingState.previewStatus.error}
+              Preview build failed. Check build logs for details.
             </div>
           )}
         </div>
       )}
 
+      {/* Build Logs */}
+      {streamingState.buildLogs.length > 0 && (
+        <details className="mb-3">
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+            Build Logs ({streamingState.buildLogs.length})
+          </summary>
+          <div className="mt-2 bg-gray-900 text-green-400 rounded p-2 text-xs font-mono max-h-32 overflow-y-auto">
+            {streamingState.buildLogs.map((log, index) => (
+              <div key={index}>{log}</div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {/* Download Ready */}
-      {streamingState.downloadId && (
+      {streamingState.downloadUrl && (
         <div className="flex items-center space-x-2">
           <Badge variant="secondary" className="bg-green-50 text-green-700">
             <Download className="h-3 w-3 mr-1" />

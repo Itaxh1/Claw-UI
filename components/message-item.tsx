@@ -11,34 +11,38 @@ import type { Message, LLMResponse } from "@/lib/api"
 
 interface MessageItemProps {
   message: Message
-  getLatestContent: (message: Message) => string
-  getLatestLLMResponse: (message: Message) => LLMResponse | null
   onEdit: (messageId: string, text: string) => Promise<void>
   onDownloadAttachment: (attachmentId: string) => void
 }
 
-export function MessageItem({
-  message,
-  getLatestContent,
-  getLatestLLMResponse,
-  onEdit,
-  onDownloadAttachment,
-}: MessageItemProps) {
+export function MessageItem({ message, onEdit, onDownloadAttachment }: MessageItemProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editText, setEditText] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [copiedFile, setCopiedFile] = useState<string | null>(null)
 
-  const content = getLatestContent(message)
-  const llmResponse = getLatestLLMResponse(message)
+  const isUser = message.role === "user"
+
+  // Get content for user messages
+  const getUserContent = (): string => {
+    if (!message.content || message.content.length === 0) return ""
+    return message.content[message.content.length - 1].text
+  }
+
+  // Get latest LLM response for assistant messages
+  const getLatestLLMResponse = (): LLMResponse | null => {
+    if (!message.llmResponse || message.llmResponse.length === 0) return null
+    return message.llmResponse[message.llmResponse.length - 1]
+  }
 
   const handleEdit = () => {
+    const content = getUserContent()
     setEditText(content)
     setIsEditing(true)
   }
 
   const handleSaveEdit = async () => {
-    if (!editText.trim() || editText === content) {
+    if (!editText.trim() || editText === getUserContent()) {
       setIsEditing(false)
       return
     }
@@ -60,7 +64,8 @@ export function MessageItem({
     setTimeout(() => setCopiedFile(null), 2000)
   }
 
-  const isUser = message.role === "user"
+  const content = getUserContent()
+  const llmResponse = getLatestLLMResponse()
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-6`}>
@@ -76,75 +81,68 @@ export function MessageItem({
 
         {/* Message Content */}
         <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-          {/* Message Bubble */}
-          <div
-            className={`rounded-2xl px-4 py-3 ${
-              isUser ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-900"
-            }`}
-          >
-            {isEditing ? (
-              <div className="space-y-2 min-w-[200px]">
-                <Input
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  className="bg-gray-50 border-gray-200 text-gray-900"
-                  placeholder="Edit your message..."
-                />
-                <div className="flex space-x-2">
-                  <Button size="sm" onClick={handleSaveEdit} disabled={isSubmitting}>
-                    <Check className="h-3 w-3 mr-1" />
-                    Save
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={handleCancelEdit}>
-                    <X className="h-3 w-3 mr-1" />
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>
-
-                {/* Version indicator */}
-                {message.content && message.content.length > 1 && (
-                  <Badge variant="secondary" className="mt-2 text-xs">
-                    v{message.content.length}
-                  </Badge>
-                )}
-              </div>
-            )}
-
-            {/* Attachments */}
-            {message.attachments && message.attachments.length > 0 && (
-              <div className="mt-3 space-y-2">
-                <div className="text-xs opacity-75">Attachments:</div>
-                {message.attachments.map((attachment) => (
-                  <div
-                    key={attachment._id}
-                    className={`flex items-center space-x-2 rounded p-2 text-xs ${
-                      isUser ? "bg-blue-500" : "bg-gray-50"
-                    }`}
-                  >
-                    <Paperclip className="h-3 w-3" />
-                    <span className="flex-1 truncate">{attachment.originalName}</span>
-                    <span className="opacity-75">{(attachment.size / 1024).toFixed(1)}KB</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0"
-                      onClick={() => onDownloadAttachment(attachment._id)}
-                    >
-                      <Download className="h-3 w-3" />
+          {/* User Message Bubble */}
+          {isUser && (
+            <div className="bg-blue-600 text-white rounded-2xl px-4 py-3">
+              {isEditing ? (
+                <div className="space-y-2 min-w-[200px]">
+                  <Input
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    className="bg-blue-500 border-blue-400 text-white placeholder-blue-200"
+                    placeholder="Edit your message..."
+                  />
+                  <div className="flex space-x-2">
+                    <Button size="sm" onClick={handleSaveEdit} disabled={isSubmitting} variant="secondary">
+                      <Check className="h-3 w-3 mr-1" />
+                      Save
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                      <X className="h-3 w-3 mr-1" />
+                      Cancel
                     </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>
 
-          {/* AI Response Content */}
+                  {/* Version indicator */}
+                  {message.content && message.content.length > 1 && (
+                    <Badge variant="secondary" className="mt-2 text-xs bg-blue-500 text-blue-100">
+                      v{message.content.length}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Attachments */}
+              {message.attachments && message.attachments.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <div className="text-xs opacity-75">Attachments:</div>
+                  {message.attachments.map((attachment) => (
+                    <div key={attachment._id} className="flex items-center space-x-2 rounded p-2 text-xs bg-blue-500">
+                      <Paperclip className="h-3 w-3" />
+                      <span className="flex-1 truncate">{attachment.originalName}</span>
+                      <span className="opacity-75">{(attachment.size / 1024).toFixed(1)}KB</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-blue-100 hover:text-white"
+                        onClick={() => onDownloadAttachment(attachment._id)}
+                      >
+                        <Download className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Assistant Response Content */}
           {!isUser && llmResponse && (
-            <div className="mt-3 w-full max-w-4xl">
+            <div className="w-full max-w-4xl">
               {/* Status Badge */}
               <div className="flex items-center space-x-2 mb-3">
                 <Badge variant="outline" className="text-xs">
@@ -193,28 +191,32 @@ export function MessageItem({
                       </div>
                       <div className="flex items-center space-x-2">
                         {llmResponse.codeResponse.previewUrl && (
-                          <Button size="sm" variant="outline">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => window.open(llmResponse.codeResponse!.previewUrl, "_blank")}
+                          >
                             <Eye className="h-3 w-3 mr-1" />
                             Preview
                           </Button>
                         )}
-                        <Button size="sm" variant="outline">
-                          <Download className="h-3 w-3 mr-1" />
-                          Download
-                        </Button>
+                        {llmResponse.codeResponse.downloadUrl && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const link = document.createElement("a")
+                              link.href = llmResponse.codeResponse!.downloadUrl!
+                              link.download = "game.zip"
+                              link.click()
+                            }}
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            Download
+                          </Button>
+                        )}
                       </div>
                     </div>
-
-                    {/* Game Features */}
-                    {llmResponse.codeResponse.gameFeatures && llmResponse.codeResponse.gameFeatures.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {llmResponse.codeResponse.gameFeatures.map((feature, index) => (
-                          <Badge key={index} variant="secondary" className="text-xs bg-blue-50 text-blue-700">
-                            {feature}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
                   </div>
 
                   {/* File Tabs */}
@@ -250,7 +252,7 @@ export function MessageItem({
                             <div className="flex items-center space-x-2">
                               <span className="text-sm font-medium text-gray-900">{file.path}</span>
                               <Badge variant="secondary" className="text-xs">
-                                {file.size} bytes
+                                {file.content.length} chars
                               </Badge>
                             </div>
                             <Button
@@ -273,34 +275,10 @@ export function MessageItem({
                               <code>{file.content}</code>
                             </pre>
                           </ScrollArea>
-
-                          {/* File Description */}
-                          {file.description && (
-                            <div className="px-4 py-2 bg-blue-50 border-t border-blue-200 text-xs text-blue-700">
-                              {file.description}
-                            </div>
-                          )}
                         </div>
                       </TabsContent>
                     ))}
                   </Tabs>
-
-                  {/* Instructions */}
-                  {llmResponse.codeResponse.instructions && (
-                    <div className="px-4 py-3 bg-green-50 border-t border-green-200">
-                      <div className="flex items-start space-x-2">
-                        <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center mt-0.5">
-                          <Eye className="h-3 w-3 text-green-600" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-medium text-green-900 mb-1">How to Run</h4>
-                          <div className="text-sm text-green-700 whitespace-pre-wrap">
-                            {llmResponse.codeResponse.instructions}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -314,13 +292,6 @@ export function MessageItem({
                     {llmResponse.thinking}
                   </div>
                 </details>
-              )}
-
-              {/* Error */}
-              {llmResponse.error && (
-                <div className="mt-3 bg-red-50 border border-red-200 rounded p-3 text-red-600 text-sm">
-                  {llmResponse.error}
-                </div>
               )}
             </div>
           )}
