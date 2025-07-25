@@ -51,12 +51,30 @@ export interface Attachment {
   downloadUrl: string
 }
 
+export interface GameResponse {
+  version: number
+  prompt: string
+  status: "generating" | "completed" | "error"
+  files: CodeFile[]
+  metadata: {
+    gameType: string
+    framework: string
+    features: string[]
+    totalFiles?: number
+    projectId?: string
+    chainUsed?: string
+    chainSteps?: string[]
+  }
+  previewUrl?: string
+  error?: string
+  createdAt: string
+}
+
 export interface Message {
   _id: string
   role: "user" | "assistant"
   content?: MessageContent[]
-  attachments?: Attachment[]
-  llmResponse?: LLMResponse[]
+  gameResponse?: GameResponse[]
   createdAt: string
   updatedAt: string
 }
@@ -65,15 +83,33 @@ export interface ConversationSummary {
   _id: string
   title: string
   updatedAt: string
+  lastGameResponse?: {
+    status: "generating" | "completed" | "error"
+    filesCount: number
+    gameType: string
+    framework: string
+    previewFiles: Array<{
+      path: string
+      type: string
+      size: number
+    }>
+  }
 }
 
 export interface Conversation {
   _id: string
-  userId: string
   title: string
   messages: Message[]
   createdAt: string
   updatedAt: string
+  summary: {
+    totalMessages: number
+    userMessages: number
+    assistantMessages: number
+    totalFiles: number
+    lastActivity: string
+    gameStatus: "none" | "generating" | "completed" | "error"
+  }
 }
 
 export interface ApiResponse<T> {
@@ -100,6 +136,8 @@ export interface StreamEvent {
     | "file_start"
     | "file_chunk"
     | "file_complete"
+    | "file_generated"
+    | "progress"
     | "verification"
     | "preview_start"
     | "preview_ready"
@@ -110,17 +148,47 @@ export interface StreamEvent {
     | "preview_error"
     | "ping"
     | "end"
+
+  // Content and chunks
   content?: string
   chunk?: string
+  message?: string
+
+  // File-related fields
   filename?: string
-  fileName?: string // Keep both for compatibility
+  fileName?: string
   file?: CodeFile
+  fileType?: string
+  index?: number
   totalFiles?: number
+  filesCount?: number
+
+  // Progress fields
+  step?: number
+  totalSteps?: number
+  stepName?: string
   progress?: number
-  size?: number
+
+  // Complete event fields
+  files?: CodeFile[]
+  metadata?: {
+    gameType: string
+    framework: string
+    totalFiles: number
+    projectId: string
+    chainUsed: string
+    chainSteps: string[]
+  }
+
+  // URLs and IDs
   url?: string
+  previewUrl?: string
+  liveUrl?: string // Add liveUrl field
   previewId?: string
   downloadId?: string
+
+  // Other fields
+  size?: number
   response?: LLMResponse
   error?: string
   details?: string
@@ -263,14 +331,11 @@ class ApiClient {
   // Messages - Updated to match new API spec
   async sendMessage(conversationId: string, text: string, files?: File[]): Promise<ApiResponse<StreamInitResponse>> {
     const formData = new FormData()
-
-    // Add text field (not content)
     formData.append("text", text)
 
-    // Add files if provided - using multipart/form-data
     if (files && files.length > 0) {
       files.forEach((file) => {
-        formData.append("files", file) // Updated field name to match docs
+        formData.append("files", file)
       })
     }
 
@@ -280,7 +345,6 @@ class ApiClient {
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
-          // Don't set Content-Type for FormData - browser will set it with boundary
         },
         body: formData,
       })
@@ -294,8 +358,6 @@ class ApiClient {
         console.error("Raw response:", responseText)
         rawData = { error: "Failed to parse response", details: responseText }
       }
-
-      console.log("📤 Send message response:", rawData)
 
       if (!response.ok) {
         return {
@@ -339,108 +401,31 @@ class ApiClient {
       url: fullUrl,
     })
 
-    // Custom EventSource implementation using fetch for auth headers
-    let controller: AbortController | null = null
+    // Use native EventSource with custom headers via URL params for auth
+    const urlWithAuth = token ? `${fullUrl}?token=${encodeURIComponent(token)}` : fullUrl
 
-    const connectWithFetch = async () => {
+    const eventSource = new EventSource(urlWithAuth)
+
+    eventSource.onopen = () => {
+      console.log("✅ Stream connection opened")
+    }
+
+    eventSource.onmessage = (event) => {
       try {
-        controller = new AbortController()
-
-        const response = await fetch(fullUrl, {
-          method: "GET",
-          headers: {
-            Accept: "text/event-stream",
-            "Cache-Control": "no-cache",
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-
-        if (!response.body) {
-          throw new Error("Response body is null")
-        }
-
-        console.log("✅ Stream connection opened via fetch")
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ""
-
-        const processStream = async () => {
-          try {
-            while (true) {
-              const { done, value } = await reader.read()
-
-              if (done) {
-                console.log("🔚 Stream ended")
-                break
-              }
-
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split("\n")
-              buffer = lines.pop() || ""
-
-              for (const line of lines) {
-                if (line.startsWith("data: ")) {
-                  const data = line.slice(6)
-                  if (data.trim() === "") continue
-
-                  try {
-                    const eventData: StreamEvent = JSON.parse(data)
-                    console.log("📡 Stream event received:", eventData.type, eventData)
-                    onEvent(eventData)
-                  } catch (parseError) {
-                    console.error("❌ Failed to parse stream event:", parseError, "Raw data:", data)
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            if (error instanceof Error && error.name === "AbortError") {
-              console.log("🛑 Stream connection aborted")
-            } else {
-              console.error("❌ Stream processing error:", error)
-              onError(error)
-            }
-          }
-        }
-
-        processStream()
-      } catch (error) {
-        console.error("❌ Stream connection error:", error)
-        onError(error)
+        const eventData: StreamEvent = JSON.parse(event.data)
+        console.log("📡 Stream event received:", eventData.type, eventData)
+        onEvent(eventData)
+      } catch (parseError) {
+        console.error("❌ Failed to parse stream event:", parseError, "Raw data:", event.data)
       }
     }
 
-    connectWithFetch()
+    eventSource.onerror = (error) => {
+      console.error("❌ Stream connection error:", error)
+      onError(error)
+    }
 
-    // Mock EventSource object for compatibility
-    const mockEventSource = {
-      readyState: 1,
-      close: () => {
-        console.log("🔌 Closing stream connection")
-        if (controller) {
-          controller.abort()
-        }
-      },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-      onopen: null,
-      onmessage: null,
-      onerror: null,
-      url: fullUrl,
-      withCredentials: false,
-      CONNECTING: 0,
-      OPEN: 1,
-      CLOSED: 2,
-    } as EventSource
-
-    return mockEventSource
+    return eventSource
   }
 
   async editMessage(conversationId: string, messageId: string, text: string): Promise<ApiResponse<Message>> {

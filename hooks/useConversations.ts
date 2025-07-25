@@ -6,9 +6,10 @@ import {
   type Conversation,
   type ConversationSummary,
   type Message,
-  type LLMResponse,
   type StreamEvent,
   type PreviewStatus,
+  type GameResponse,
+  type CodeFile,
 } from "@/lib/api"
 import { useAuth } from "./useAuth"
 
@@ -17,14 +18,27 @@ interface StreamingState {
   currentThinking: string
   currentTextChunks: string[]
   currentFiles: { [fileName: string]: { content: string; isComplete: boolean; size?: number } }
+  generatedFiles: CodeFile[]
   totalFiles: number
   completedFiles: number
   progress: number
+  step: number
+  totalSteps: number
+  stepName: string
   previewStatus?: PreviewStatus
+  previewUrl?: string
   downloadUrl?: string
   downloadId?: string
   error?: string
   buildLogs: string[]
+  metadata?: {
+    gameType: string
+    framework: string
+    totalFiles: number
+    projectId: string
+    chainUsed: string
+    chainSteps: string[]
+  }
 }
 
 export function useConversations() {
@@ -37,9 +51,13 @@ export function useConversations() {
     currentThinking: "",
     currentTextChunks: [],
     currentFiles: {},
+    generatedFiles: [],
     totalFiles: 0,
     completedFiles: 0,
     progress: 0,
+    step: 0,
+    totalSteps: 0,
+    stepName: "",
     buildLogs: [],
   })
 
@@ -131,9 +149,13 @@ export function useConversations() {
       currentThinking: "",
       currentTextChunks: [],
       currentFiles: {},
+      generatedFiles: [],
       totalFiles: 0,
       completedFiles: 0,
       progress: 0,
+      step: 0,
+      totalSteps: 0,
+      stepName: "",
       buildLogs: [],
     })
   }
@@ -150,14 +172,25 @@ export function useConversations() {
         case "thinking":
           setStreamingState((prev) => ({
             ...prev,
-            currentThinking: event.content || "",
+            currentThinking: event.content || event.message || "",
           }))
           break
 
         case "thinking_detail":
           setStreamingState((prev) => ({
             ...prev,
-            currentThinking: event.content || "",
+            currentThinking: event.content || event.message || "",
+          }))
+          break
+
+        case "progress":
+          setStreamingState((prev) => ({
+            ...prev,
+            step: event.step || prev.step,
+            totalSteps: event.totalSteps || prev.totalSteps,
+            stepName: event.stepName || prev.stepName,
+            progress: event.progress || prev.progress,
+            currentThinking: event.message || prev.currentThinking,
           }))
           break
 
@@ -165,24 +198,25 @@ export function useConversations() {
           setStreamingState((prev) => ({
             ...prev,
             currentTextChunks: [],
-            currentThinking: event.content || "📝 Generating documentation...",
+            currentThinking: event.content || event.message || "📝 Generating documentation...",
           }))
           break
 
         case "text_chunk":
           setStreamingState((prev) => ({
             ...prev,
-            currentTextChunks: [...prev.currentTextChunks, event.content || ""],
+            currentTextChunks: [...prev.currentTextChunks, event.content || event.chunk || ""],
           }))
           break
 
         case "code_start":
           setStreamingState((prev) => ({
             ...prev,
-            currentThinking: event.content || "💻 Writing game code...",
-            totalFiles: 0,
+            currentThinking: event.content || event.message || "💻 Writing game code...",
+            totalFiles: event.totalFiles || 0,
             completedFiles: 0,
             currentFiles: {},
+            generatedFiles: [], // Reset files when starting new generation
           }))
           break
 
@@ -202,14 +236,14 @@ export function useConversations() {
 
         case "file_chunk":
           const chunkFileName = event.filename || event.fileName
-          if (chunkFileName && event.content) {
+          if (chunkFileName && (event.content || event.chunk)) {
             setStreamingState((prev) => ({
               ...prev,
               currentFiles: {
                 ...prev.currentFiles,
                 [chunkFileName]: {
                   ...prev.currentFiles[chunkFileName],
-                  content: (prev.currentFiles[chunkFileName]?.content || "") + event.content,
+                  content: (prev.currentFiles[chunkFileName]?.content || "") + (event.content || event.chunk),
                 },
               },
             }))
@@ -234,17 +268,45 @@ export function useConversations() {
           }
           break
 
+        case "file_generated":
+          if (event.file) {
+            console.log("📁 File generated:", event.file.path)
+            setStreamingState((prev) => {
+              // Check if file already exists to avoid duplicates
+              const existingFileIndex = prev.generatedFiles.findIndex((f) => f.path === event.file!.path)
+              let updatedFiles: CodeFile[]
+
+              if (existingFileIndex >= 0) {
+                // Update existing file
+                updatedFiles = [...prev.generatedFiles]
+                updatedFiles[existingFileIndex] = event.file!
+              } else {
+                // Add new file
+                updatedFiles = [...prev.generatedFiles, event.file!]
+              }
+
+              return {
+                ...prev,
+                generatedFiles: updatedFiles,
+                completedFiles: event.index || updatedFiles.length,
+                totalFiles: event.totalFiles || prev.totalFiles,
+                currentThinking: `Generated ${event.file!.path} (${updatedFiles.length}/${event.totalFiles || prev.totalFiles})`,
+              }
+            })
+          }
+          break
+
         case "verification":
           setStreamingState((prev) => ({
             ...prev,
-            currentThinking: event.content || "✅ Verifying code quality and dependencies...",
+            currentThinking: event.content || event.message || "✅ Verifying code quality and dependencies...",
           }))
           break
 
         case "preview_start":
           setStreamingState((prev) => ({
             ...prev,
-            currentThinking: event.content || "🚀 Setting up Vite development environment...",
+            currentThinking: event.content || event.message || "🚀 Setting up preview environment...",
             previewStatus: { status: "building" },
           }))
           break
@@ -269,20 +331,41 @@ export function useConversations() {
           break
 
         case "generation_complete":
+          console.log("🎯 Generation complete event:", event)
           setStreamingState((prev) => ({
             ...prev,
             progress: event.progress || 100,
-            currentThinking: "✅ Generation completed!",
+            previewUrl: event.previewUrl || event.liveUrl, // Check both fields
+            currentThinking: event.message || "✅ Generation completed!",
           }))
           break
 
         case "complete":
-          console.log("✅ Stream complete:", event.response)
-          setStreamingState((prev) => ({
-            ...prev,
-            isStreaming: false,
-            progress: 100,
-          }))
+          console.log("✅ Stream complete:", event)
+          setStreamingState((prev) => {
+            // Use files from complete event if available, otherwise keep existing
+            const finalFiles = event.files && event.files.length > 0 ? event.files : prev.generatedFiles
+            console.log("📁 Final files count:", finalFiles.length)
+
+            // FIXED: Properly extract liveUrl from complete event
+            const previewUrl = event.liveUrl || event.previewUrl || prev.previewUrl
+            console.log("🎮 Setting preview URL from complete event:", {
+              liveUrl: event.liveUrl,
+              previewUrl: event.previewUrl,
+              finalPreviewUrl: previewUrl,
+            })
+
+            return {
+              ...prev,
+              isStreaming: false,
+              progress: 100,
+              generatedFiles: finalFiles,
+              metadata: event.metadata,
+              previewUrl: previewUrl, // Use liveUrl directly - it's already a full URL
+              currentThinking: "✅ Game generation completed successfully!",
+            }
+          })
+
           // Reload conversation to get the final message
           if (activeConversation) {
             loadConversation(activeConversation._id)
@@ -429,18 +512,25 @@ export function useConversations() {
       if (!message.content || message.content.length === 0) return ""
       return message.content[message.content.length - 1].text
     }
-    // For assistant messages, return the text response from LLM
-    if (!message.llmResponse || message.llmResponse.length === 0) return ""
-    return message.llmResponse[message.llmResponse.length - 1].textResponse || ""
+    return ""
   }
 
-  const getLatestLLMResponse = (message: Message): LLMResponse | null => {
-    if (!message.llmResponse || message.llmResponse.length === 0) return null
-    return message.llmResponse[message.llmResponse.length - 1]
+  const getLatestGameResponse = (message: Message): GameResponse | null => {
+    if (!message.gameResponse || message.gameResponse.length === 0) return null
+    return message.gameResponse[message.gameResponse.length - 1]
   }
 
   // Get current streaming code for the editor
   const getCurrentStreamingCode = (): string => {
+    // First check generated files
+    if (streamingState.generatedFiles.length > 0) {
+      const mainFile = streamingState.generatedFiles.find(
+        (f) => f.path.includes("index.html") || f.path.includes("main") || f.type === "html",
+      )
+      return mainFile?.content || streamingState.generatedFiles[0].content || ""
+    }
+
+    // Fallback to streaming files
     const files = Object.values(streamingState.currentFiles)
     const mainFile = files.find((f) => f.content.includes("Phaser.Game") || f.content.includes("main.js"))
     return mainFile?.content || files[0]?.content || ""
@@ -459,7 +549,7 @@ export function useConversations() {
     stopGeneration,
     refreshConversations: loadConversations,
     getLatestMessageContent,
-    getLatestLLMResponse,
+    getLatestGameResponse,
     getCurrentStreamingCode,
   }
 }

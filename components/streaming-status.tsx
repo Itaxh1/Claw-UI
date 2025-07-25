@@ -1,204 +1,224 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Button } from "@/components/ui/button"
-import {
-  Brain,
-  Code,
-  FileText,
-  Eye,
-  Download,
-  X,
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  ExternalLink,
-  Zap,
-} from "lucide-react"
+import { Progress } from "@/components/ui/progress"
+import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Bot, Loader2, StopCircle, Code, FileText, CheckCircle, AlertCircle, Gamepad2, Zap } from "lucide-react"
+
+interface StreamingState {
+  isStreaming: boolean
+  currentThinking: string
+  currentTextChunks: string[]
+  currentFiles: { [fileName: string]: { content: string; isComplete: boolean; size?: number } }
+  generatedFiles: Array<{
+    path: string
+    content: string
+    type: string
+    language: string
+  }>
+  totalFiles: number
+  completedFiles: number
+  progress: number
+  step: number
+  totalSteps: number
+  stepName: string
+  previewStatus?: {
+    status: "building" | "ready" | "error"
+    url?: string
+  }
+  previewUrl?: string
+  downloadUrl?: string
+  downloadId?: string
+  error?: string
+  buildLogs: string[]
+  metadata?: {
+    gameType: string
+    framework: string
+    totalFiles: number
+    projectId: string
+    chainUsed: string
+    chainSteps: string[]
+  }
+}
 
 interface StreamingStatusProps {
-  streamingState: {
-    isStreaming: boolean
-    currentThinking: string
-    currentTextChunks: string[]
-    currentFiles: { [fileName: string]: { content: string; isComplete: boolean; size?: number } }
-    totalFiles: number
-    completedFiles: number
-    progress: number
-    previewStatus?: {
-      status: "building" | "ready" | "error"
-      url?: string
-    }
-    downloadUrl?: string
-    error?: string
-    buildLogs: string[]
-  }
+  streamingState: StreamingState
   onStop: () => void
 }
 
 export function StreamingStatus({ streamingState, onStop }: StreamingStatusProps) {
-  if (
-    !streamingState.isStreaming &&
-    !streamingState.error &&
-    !streamingState.previewStatus &&
-    !streamingState.downloadUrl
-  ) {
+  if (!streamingState.isStreaming && !streamingState.error && streamingState.generatedFiles.length === 0) {
     return null
   }
 
-  const fileCount = Object.keys(streamingState.currentFiles).length
-  const completedFileCount = Object.values(streamingState.currentFiles).filter((f) => f.isComplete).length
+  const getFileIcon = (type: string) => {
+    switch (type) {
+      case "html":
+        return <FileText className="h-3 w-3 text-orange-600" />
+      case "js":
+      case "javascript":
+        return <Code className="h-3 w-3 text-yellow-600" />
+      case "css":
+        return <FileText className="h-3 w-3 text-blue-600" />
+      default:
+        return <FileText className="h-3 w-3 text-gray-600" />
+    }
+  }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center space-x-2">
-          {streamingState.error ? (
-            <AlertCircle className="h-4 w-4 text-red-500" />
-          ) : streamingState.isStreaming ? (
-            <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-          ) : (
-            <CheckCircle className="h-4 w-4 text-green-500" />
-          )}
-          <span className="font-medium text-gray-900">
-            {streamingState.error
-              ? "Generation Error"
-              : streamingState.isStreaming
-                ? "Generating Game..."
-                : "Generation Complete"}
-          </span>
+    <div className="flex justify-start mb-4">
+      <div className="flex items-start space-x-3 max-w-[85%]">
+        <div className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center flex-shrink-0">
+          <Bot className="h-4 w-4 text-white" />
         </div>
-        {streamingState.isStreaming && (
-          <Button variant="ghost" size="sm" onClick={onStop} className="h-8 w-8 p-0">
-            <X className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-
-      {streamingState.error && (
-        <div className="bg-red-50 border border-red-200 rounded p-3 mb-3">
-          <p className="text-red-700 text-sm">{streamingState.error}</p>
-        </div>
-      )}
-
-      {/* Thinking Phase */}
-      {streamingState.currentThinking && (
-        <div className="flex items-center space-x-2 mb-3">
-          <Brain className="h-4 w-4 text-purple-500" />
-          <span className="text-sm text-gray-600">{streamingState.currentThinking}</span>
-        </div>
-      )}
-
-      {/* Overall Progress */}
-      {streamingState.progress > 0 && (
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Overall Progress</span>
-            <span className="text-xs text-gray-500">{streamingState.progress}%</span>
-          </div>
-          <Progress value={streamingState.progress} className="h-2" />
-        </div>
-      )}
-
-      {/* File Generation Progress */}
-      {fileCount > 0 && (
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-2">
+        <div className="bg-gray-100 rounded-2xl px-4 py-3 flex-1 space-y-3">
+          {/* Header */}
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Code className="h-4 w-4 text-blue-500" />
-              <span className="text-sm font-medium">
-                Generating Files ({completedFileCount}/{fileCount})
+              <Gamepad2 className="h-4 w-4 text-gray-600" />
+              <span className="text-sm font-medium text-gray-900">
+                {streamingState.isStreaming ? "Generating Game..." : "Game Generation"}
               </span>
+              {streamingState.isStreaming && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
             </div>
+            {streamingState.isStreaming && (
+              <Button variant="ghost" size="sm" onClick={onStop} className="h-6 px-2 text-xs">
+                <StopCircle className="h-3 w-3 mr-1" />
+                Stop
+              </Button>
+            )}
           </div>
-          <div className="space-y-1">
-            {Object.entries(streamingState.currentFiles).map(([fileName, file]) => (
-              <div key={fileName} className="flex items-center space-x-2 text-xs">
-                <div className={`w-2 h-2 rounded-full ${file.isComplete ? "bg-green-500" : "bg-yellow-500"}`} />
-                <FileText className="h-3 w-3 text-gray-400" />
-                <span className="text-gray-600 flex-1 truncate">{fileName}</span>
-                {file.size && <span className="text-gray-400">{(file.size / 1024).toFixed(1)}KB</span>}
-                {file.isComplete && <CheckCircle className="h-3 w-3 text-green-500" />}
+
+          {/* Progress */}
+          {(streamingState.progress > 0 || streamingState.step > 0) && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600">
+                  {streamingState.stepName &&
+                    `Step ${streamingState.step}/${streamingState.totalSteps}: ${streamingState.stepName}`}
+                </span>
+                <span className="text-gray-500">{streamingState.progress}%</span>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Text Generation */}
-      {streamingState.currentTextChunks.length > 0 && (
-        <div className="mb-3">
-          <div className="bg-gray-50 rounded p-2 text-xs text-gray-600 max-h-20 overflow-y-auto">
-            {streamingState.currentTextChunks.join("")}
-          </div>
-        </div>
-      )}
-
-      {/* Preview Status */}
-      {streamingState.previewStatus && (
-        <div className="mb-3">
-          <div className="flex items-center space-x-2 mb-2">
-            <Eye className="h-4 w-4 text-blue-500" />
-            <span className="text-sm font-medium">Live Preview</span>
-            <Badge
-              variant={
-                streamingState.previewStatus.status === "ready"
-                  ? "default"
-                  : streamingState.previewStatus.status === "error"
-                    ? "destructive"
-                    : "secondary"
-              }
-              className="text-xs"
-            >
-              {streamingState.previewStatus.status === "building" && <Zap className="h-3 w-3 mr-1" />}
-              {streamingState.previewStatus.status}
-            </Badge>
-          </div>
-
-          {streamingState.previewStatus.status === "ready" && streamingState.previewStatus.url && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full bg-transparent"
-              onClick={() => window.open(streamingState.previewStatus!.url, "_blank")}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Open Live Preview
-            </Button>
-          )}
-
-          {streamingState.previewStatus.status === "error" && (
-            <div className="bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700">
-              Preview build failed. Check build logs for details.
+              <Progress value={streamingState.progress} className="h-2" />
             </div>
           )}
-        </div>
-      )}
 
-      {/* Build Logs */}
-      {streamingState.buildLogs.length > 0 && (
-        <details className="mb-3">
-          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
-            Build Logs ({streamingState.buildLogs.length})
-          </summary>
-          <div className="mt-2 bg-gray-900 text-green-400 rounded p-2 text-xs font-mono max-h-32 overflow-y-auto">
-            {streamingState.buildLogs.map((log, index) => (
-              <div key={index}>{log}</div>
-            ))}
-          </div>
-        </details>
-      )}
+          {/* Current Status */}
+          {streamingState.currentThinking && (
+            <div className="bg-white rounded-lg p-3 border">
+              <p className="text-sm text-gray-700">{streamingState.currentThinking}</p>
+            </div>
+          )}
 
-      {/* Download Ready */}
-      {streamingState.downloadUrl && (
-        <div className="flex items-center space-x-2">
-          <Badge variant="secondary" className="bg-green-50 text-green-700">
-            <Download className="h-3 w-3 mr-1" />
-            Download Ready
-          </Badge>
+          {/* Chain Steps */}
+          {streamingState.metadata?.chainSteps && (
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-gray-900">AI Chain:</span>
+              <div className="flex flex-wrap gap-1">
+                {streamingState.metadata.chainSteps.map((step, index) => (
+                  <Badge key={index} variant="outline" className="text-xs">
+                    {step}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Generated Files */}
+          {streamingState.generatedFiles.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-900">
+                  Generated Files ({streamingState.generatedFiles.length})
+                </span>
+                {streamingState.metadata && (
+                  <div className="flex space-x-1">
+                    <Badge variant="secondary" className="text-xs">
+                      {streamingState.metadata.gameType}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {streamingState.metadata.framework}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+              <ScrollArea className="max-h-32">
+                <div className="space-y-1">
+                  {streamingState.generatedFiles.map((file, index) => (
+                    <div key={index} className="flex items-center justify-between bg-white rounded p-2 border text-xs">
+                      <div className="flex items-center space-x-2">
+                        {getFileIcon(file.type)}
+                        <span className="font-mono">{file.path}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {file.language}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-gray-500">{Math.round(file.content.length / 1024)}KB</span>
+                        <CheckCircle className="h-3 w-3 text-green-600" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
+          {/* File Progress (for streaming files) */}
+          {streamingState.totalFiles > 0 && streamingState.generatedFiles.length === 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-600">Files Generated</span>
+                <span className="text-gray-500">
+                  {streamingState.completedFiles}/{streamingState.totalFiles}
+                </span>
+              </div>
+              <Progress value={(streamingState.completedFiles / streamingState.totalFiles) * 100} className="h-2" />
+            </div>
+          )}
+
+          {/* Preview Status */}
+          {streamingState.previewUrl && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div className="flex items-center space-x-2">
+                <Zap className="h-4 w-4 text-green-600" />
+                <span className="text-sm font-medium text-green-900">Preview Ready!</span>
+              </div>
+              <p className="text-sm text-green-700 mt-1">
+                Your game is ready to preview. Switch to the Preview tab to see it in action.
+              </p>
+            </div>
+          )}
+
+          {/* Error */}
+          {streamingState.error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <span className="text-sm font-medium text-red-900">Generation Error</span>
+              </div>
+              <p className="text-sm text-red-700 mt-1">{streamingState.error}</p>
+            </div>
+          )}
+
+          {/* Build Logs */}
+          {streamingState.buildLogs.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-gray-600 hover:text-gray-800">
+                Build Logs ({streamingState.buildLogs.length})
+              </summary>
+              <ScrollArea className="max-h-24 mt-2">
+                <div className="bg-gray-900 text-green-400 p-2 rounded font-mono text-xs">
+                  {streamingState.buildLogs.map((log, index) => (
+                    <div key={index}>{log}</div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </details>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
