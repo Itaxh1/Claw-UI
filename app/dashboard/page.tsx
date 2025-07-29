@@ -56,7 +56,7 @@ export default function Dashboard() {
     editMessage,
     stopGeneration,
     getLatestMessageContent,
-    getLatestLLMResponse,
+    getLatestGameResponse, // Changed from getLatestLLMResponse
     getCurrentStreamingCode,
   } = useConversations()
 
@@ -106,16 +106,18 @@ export default function Dashboard() {
     if (activeConversation?.messages) {
       const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
       if (lastMessage?.role === "assistant") {
-        const llmResponse = getLatestLLMResponse(lastMessage)
-        if (llmResponse?.codeResponse?.files) {
-          const mainFile = llmResponse.codeResponse.files.find((f) => f.type === "source" || f.path.includes("main"))
+        const gameResponse = getLatestGameResponse(lastMessage)
+        if (gameResponse?.files) {
+          const mainFile = gameResponse.files.find(
+            (f) => f.type === "source" || f.path.includes("main") || f.path.includes("index"),
+          )
           if (mainFile) {
             setCode(mainFile.content)
           }
         }
       }
     }
-  }, [activeConversation, getLatestLLMResponse, getCurrentStreamingCode, streamingState])
+  }, [activeConversation, getLatestGameResponse, getCurrentStreamingCode, streamingState])
 
   const loadSystemStatus = async () => {
     const response = await api.healthCheck()
@@ -209,26 +211,7 @@ export default function Dashboard() {
     }
   }
 
-  const handleDownloadAttachment = async (attachmentId: string) => {
-    if (!activeConversation) return
 
-    // Find the message with this attachment
-    const message = activeConversation.messages.find((m) => m.attachments?.some((a) => a._id === attachmentId))
-    if (!message) return
-
-    const blob = await api.downloadAttachment(activeConversation._id, message._id, attachmentId)
-    if (blob) {
-      const attachment = message.attachments?.find((a) => a._id === attachmentId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = attachment?.originalName || "attachment"
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
-  }
 
   const handleEditMessage = async (messageId: string, text: string) => {
     if (activeConversation) {
@@ -541,7 +524,6 @@ export default function Dashboard() {
                   key={message._id}
                   message={message}
                   onEdit={handleEditMessage}
-                  onDownloadAttachment={handleDownloadAttachment}
                 />
               ))}
 
@@ -665,18 +647,55 @@ export default function Dashboard() {
                     src={streamingState.previewStatus.url}
                     className="w-full h-full border-0"
                     title="Game Preview"
+                    sandbox="allow-scripts allow-same-origin"
                   />
+                ) : activeConversation?.messages && activeConversation.messages.length > 0 ? (
+                  (() => {
+                    const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
+                    const gameResponse = lastMessage?.role === "assistant" ? getLatestGameResponse(lastMessage) : null
+                    const htmlFile = gameResponse?.files?.find((f) => f.path.includes(".html") || f.type === "html")
+
+                    if (htmlFile && gameResponse?.status === "completed") {
+                      // Create a blob URL for the HTML content
+                      const blob = new Blob([htmlFile.content], { type: "text/html" })
+                      const url = URL.createObjectURL(blob)
+
+                      return (
+                        <iframe
+                          src={url}
+                          className="w-full h-full border-0"
+                          title="Game Preview"
+                          sandbox="allow-scripts allow-same-origin"
+                          onLoad={() => {
+                            // Clean up the blob URL after loading
+                            setTimeout(() => URL.revokeObjectURL(url), 1000)
+                          }}
+                        />
+                      )
+                    }
+
+                    return (
+                      <div className="w-full h-full bg-black flex items-center justify-center">
+                        <div className="text-center text-white">
+                          <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                          <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
+                          <p className="text-gray-400 mb-4">Your generated game will appear here</p>
+                          <div className="text-sm text-gray-500">
+                            {streamingState.previewStatus?.status === "building"
+                              ? "Building preview..."
+                              : "Generate a game using the chat to see it in action!"}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()
                 ) : (
                   <div className="w-full h-full bg-black flex items-center justify-center">
                     <div className="text-center text-white">
                       <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
                       <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
                       <p className="text-gray-400 mb-4">Your generated game will appear here</p>
-                      <div className="text-sm text-gray-500">
-                        {streamingState.previewStatus?.status === "building"
-                          ? "Building preview..."
-                          : "Generate a game using the chat to see it in action!"}
-                      </div>
+                      <div className="text-sm text-gray-500">Generate a game using the chat to see it in action!</div>
                     </div>
                   </div>
                 )}
