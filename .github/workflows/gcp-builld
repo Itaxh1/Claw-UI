@@ -1,0 +1,21 @@
+name: Trigger GCP Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-on-gcp:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.GCP_VM_IP }} >> ~/.ssh/known_hosts
+
+    - name: SSH and Run Build
+      run: |
+        ssh -i ~/.ssh/id_rsa ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }} \
+        "cd ~/piplee && git pull && chmod +x scripts/quick-build.sh && ./scripts/quick-build.sh"
