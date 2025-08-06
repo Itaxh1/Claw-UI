@@ -14,8 +14,10 @@ jobs:
         echo "${{ secrets.GCP_SSH_KEY }}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ secrets.GCP_VM_IP }} >> ~/.ssh/known_hosts
-        
+   
     - name: SSH and Run Build
       run: |
         ssh -i ~/.ssh/id_rsa ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }} \
-        "cd /home/akitaxh1/home/scripts && git pull && chmod +x quick-build.sh && ./quick-build.sh"
+        "cd /home/akitaxh1/scripts && git pull && chmod +x quick-build.sh && ./quick-build.sh"
+    
+   
