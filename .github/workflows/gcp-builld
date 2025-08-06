@@ -18,4 +18,4 @@ jobs:
     - name: SSH and Run Build
       run: |
         ssh -i ~/.ssh/id_rsa ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }} \
-        "cd ~/piplee && git pull && chmod +x scripts/quick-build.sh && ./scripts/quick-build.sh"
+        "cd ~/home/akitaxh1/home/scripts && git pull && chmod +x quick-build.sh && ./quick-build.sh"
