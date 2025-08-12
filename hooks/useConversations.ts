@@ -335,7 +335,7 @@ export function useConversations() {
           setStreamingState((prev) => ({
             ...prev,
             progress: event.progress || 100,
-            previewUrl: event.previewUrl || event.liveUrl, // Check both fields
+            previewUrl: event.previewUrl || event.liveUrl,
             currentThinking: event.message || "✅ Generation completed!",
           }))
           break
@@ -347,9 +347,16 @@ export function useConversations() {
             const finalFiles = event.files && event.files.length > 0 ? event.files : prev.generatedFiles
             console.log("📁 Final files count:", finalFiles.length)
 
-            // FIXED: Properly extract liveUrl from complete event
-            const previewUrl = event.liveUrl || event.previewUrl || prev.previewUrl
+            // FIXED: Extract preview URL from setupInstructions
+            let previewUrl = prev.previewUrl
+            if (event.setupInstructions) {
+              previewUrl = event.setupInstructions.httpUrl || event.setupInstructions.previewUrl || prev.previewUrl
+            } else {
+              previewUrl = event.liveUrl || event.previewUrl || prev.previewUrl
+            }
+
             console.log("🎮 Setting preview URL from complete event:", {
+              setupInstructions: event.setupInstructions,
               liveUrl: event.liveUrl,
               previewUrl: event.previewUrl,
               finalPreviewUrl: previewUrl,
@@ -361,7 +368,7 @@ export function useConversations() {
               progress: 100,
               generatedFiles: finalFiles,
               metadata: event.metadata,
-              previewUrl: previewUrl, // Use liveUrl directly - it's already a full URL
+              previewUrl: previewUrl,
               currentThinking: "✅ Game generation completed successfully!",
             }
           })

@@ -183,9 +183,18 @@ export interface StreamEvent {
   // URLs and IDs
   url?: string
   previewUrl?: string
-  liveUrl?: string // Add liveUrl field
+  liveUrl?: string
   previewId?: string
   downloadId?: string
+
+  // Setup instructions (for complete event)
+  setupInstructions?: {
+    previewUrl: string
+    httpUrl: string
+    subdomain: string
+    generatedPath: string
+    nginxPath: string
+  }
 
   // Other fields
   size?: number
@@ -218,7 +227,7 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        credentials: 'include',
+        credentials: "include",
         headers: this.getAuthHeaders(),
         ...options,
         headers: {
@@ -277,7 +286,7 @@ class ApiClient {
     password: string,
   ): Promise<ApiResponse<{ _id: string; username: string; email: string; createdAt: string; updatedAt: string }>> {
     const response = await this.request<{
-      credentials: 'include',
+      credentials: "include"
       _id: string
       username: string
       email: string
@@ -295,7 +304,7 @@ class ApiClient {
     password: string,
   ): Promise<ApiResponse<{ token: string; user: { _id: string; username: string; email: string } }>> {
     const response = await this.request<{
-      credentials: 'include',
+      credentials: "include"
       token: string
       user: { _id: string; username: string; email: string }
     }>("/api/auth/login", {
@@ -345,7 +354,7 @@ class ApiClient {
     try {
       const token = this.getToken()
       const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
-        credentials: 'include',
+        credentials: "include",
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
@@ -455,7 +464,8 @@ class ApiClient {
       const token = this.getToken()
       const response = await fetch(
         `${API_BASE_URL}/api/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentId}`,
-        { credentials: 'include',
+        {
+          credentials: "include",
           headers: {
             ...(token && { Authorization: `Bearer ${token}` }),
           },
@@ -476,7 +486,7 @@ class ApiClient {
     try {
       const token = this.getToken()
       const response = await fetch(`${API_BASE_URL}/api/download/${downloadId}`, {
-        credentials: 'include',
+        credentials: "include",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
         },

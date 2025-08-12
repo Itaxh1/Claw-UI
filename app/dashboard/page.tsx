@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   Send,
   Code,
@@ -18,28 +19,27 @@ import {
   Monitor,
   Smartphone,
   Tablet,
-  Sparkles,
   Menu,
   X,
   Plus,
   LogOut,
   MessageSquare,
   Gamepad2,
-  Zap,
   Activity,
   Paperclip,
   Loader2,
   User,
+  ExternalLink,
+  ChevronDown,
+  FileArchive,
 } from "lucide-react"
-import dynamic from "next/dynamic"
 import { useAuth } from "@/hooks/useAuth"
 import { useConversations } from "@/hooks/useConversations"
 import { api } from "@/lib/api"
 import { FileUpload } from "@/components/file-upload"
 import { MessageItem } from "@/components/message-item"
 import { StreamingStatus } from "@/components/streaming-status"
-
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
+import { CodeViewer } from "@/components/code-viewer"
 
 export default function Dashboard() {
   const router = useRouter()
@@ -47,7 +47,7 @@ export default function Dashboard() {
   const {
     conversations,
     activeConversation,
-    messages, // This is now derived from activeConversation
+    messages,
     isLoading,
     streamingState,
     createConversation,
@@ -56,21 +56,21 @@ export default function Dashboard() {
     editMessage,
     stopGeneration,
     getLatestMessageContent,
-    getLatestGameResponse, // Changed from getLatestLLMResponse
+    getLatestGameResponse,
     getCurrentStreamingCode,
   } = useConversations()
 
   const [inputMessage, setInputMessage] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [code, setCode] = useState("") // Changed to empty string
   const [viewMode, setViewMode] = useState<"desktop" | "tablet" | "mobile">("desktop")
   const [activeTab, setActiveTab] = useState<"code" | "preview">("code")
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [systemStatus, setSystemStatus] = useState<any>(null)
-  const [isSending, setIsSending] = useState(false) // Declare isSending variable
+  const [isSending, setIsSending] = useState(false)
+  const [isConverting, setIsConverting] = useState<string | null>(null) // Track conversion state
 
   // State for custom resizable panels
-  const [chatPanelWidth, setChatPanelWidth] = useState(25) // Default width percentage
+  const [chatPanelWidth, setChatPanelWidth] = useState(25)
   const [isResizing, setIsResizing] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -92,32 +92,6 @@ export default function Dashboard() {
       }
     }
   }, [isAuthenticated, authLoading, router, user])
-
-  // Update code when AI responds with code OR during streaming
-  useEffect(() => {
-    // First check if we have streaming code
-    const streamingCode = getCurrentStreamingCode()
-    if (streamingCode) {
-      setCode(streamingCode)
-      return
-    }
-
-    // Otherwise check for completed messages
-    if (activeConversation?.messages) {
-      const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
-      if (lastMessage?.role === "assistant") {
-        const gameResponse = getLatestGameResponse(lastMessage)
-        if (gameResponse?.files) {
-          const mainFile = gameResponse.files.find(
-            (f) => f.type === "source" || f.path.includes("main") || f.path.includes("index"),
-          )
-          if (mainFile) {
-            setCode(mainFile.content)
-          }
-        }
-      }
-    }
-  }, [activeConversation, getLatestGameResponse, getCurrentStreamingCode, streamingState])
 
   const loadSystemStatus = async () => {
     const response = await api.healthCheck()
@@ -155,7 +129,6 @@ export default function Dashboard() {
         } else {
           console.error("❌ Failed to create new conversation")
           setIsSending(false)
-          // Show error to user
           alert("Failed to create conversation. Please try again.")
           return
         }
@@ -186,19 +159,40 @@ export default function Dashboard() {
     await createConversation(title)
   }
 
-  const handleDownloadCode = async () => {
-    const downloadId = streamingState.downloadId
-    if (!downloadId) {
-      console.warn("No download ID available")
+  // Updated Deploy button - opens preview URL
+  const handleDeploy = () => {
+    const previewUrl = streamingState.previewUrl
+    if (previewUrl) {
+      console.log("🚀 Opening preview URL:", previewUrl)
+      window.open(previewUrl, "_blank", "noopener,noreferrer")
+    } else {
+      alert("No preview URL available. Please generate a game first.")
+    }
+  }
+
+  // Download HTML ZIP with all files
+  const handleDownloadHtmlZip = async () => {
+    const currentFiles = getCurrentFiles()
+    if (currentFiles.length === 0) {
+      alert("No files available to download. Please generate a game first.")
       return
     }
 
-    console.log("📦 Downloading code with ID:", downloadId)
+    try {
+      // Create a zip file with all the generated files
+      const JSZip = (await import("jszip")).default
+      const zip = new JSZip()
 
-    const blob = await api.downloadCode(downloadId)
+      // Add all files to the zip
+      currentFiles.forEach((file) => {
+        zip.file(file.path, file.content)
+      })
 
-    if (blob) {
-      const url = URL.createObjectURL(blob)
+      // Generate the zip file
+      const zipBlob = await zip.generateAsync({ type: "blob" })
+
+      // Download the zip file
+      const url = URL.createObjectURL(zipBlob)
       const a = document.createElement("a")
       a.href = url
       a.download = `${activeConversation?.title || "game"}.zip`
@@ -206,12 +200,55 @@ export default function Dashboard() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-    } else {
-      console.error("Failed to download code")
+
+      console.log("📦 Downloaded HTML ZIP with", currentFiles.length, "files")
+    } catch (error) {
+      console.error("❌ Failed to create ZIP file:", error)
+      alert("Failed to create ZIP file. Please try again.")
     }
   }
 
+  // Convert to Unity code
+  const handleConvertToUnity = async () => {
+    if (!activeConversation) {
+      alert("No active conversation. Please generate a game first.")
+      return
+    }
 
+    setIsConverting("unity")
+    try {
+      console.log("🔄 Converting to Unity...")
+
+      // Send a message to convert the current game to Unity
+      await sendMessage("Convert this game to Unity C# code with proper Unity components and structure.")
+    } catch (error) {
+      console.error("❌ Failed to convert to Unity:", error)
+      alert("Failed to convert to Unity. Please try again.")
+    } finally {
+      setIsConverting(null)
+    }
+  }
+
+  // Convert to Godot code
+  const handleConvertToGodot = async () => {
+    if (!activeConversation) {
+      alert("No active conversation. Please generate a game first.")
+      return
+    }
+
+    setIsConverting("godot")
+    try {
+      console.log("🔄 Converting to Godot...")
+
+      // Send a message to convert the current game to Godot
+      await sendMessage("Convert this game to Godot GDScript with proper Godot nodes and scene structure.")
+    } catch (error) {
+      console.error("❌ Failed to convert to Godot:", error)
+      alert("Failed to convert to Godot. Please try again.")
+    } finally {
+      setIsConverting(null)
+    }
+  }
 
   const handleEditMessage = async (messageId: string, text: string) => {
     if (activeConversation) {
@@ -248,7 +285,6 @@ export default function Dashboard() {
     (e: MouseEvent) => {
       if (!isResizing) return
       const newWidth = (e.clientX / window.innerWidth) * 100
-      // Clamp width between 20% and 40%
       setChatPanelWidth(Math.max(20, Math.min(40, newWidth)))
     },
     [isResizing],
@@ -261,11 +297,31 @@ export default function Dashboard() {
   }, [handleMouseMove])
 
   useEffect(() => {
-    // Ensure input stays focusable after file operations
     if (inputRef.current && !isSending && !streamingState.isStreaming) {
       inputRef.current.focus()
     }
   }, [attachedFiles, isSending, streamingState.isStreaming])
+
+  // Get current files for code viewer
+  const getCurrentFiles = () => {
+    // First check streaming state for generated files
+    if (streamingState.generatedFiles.length > 0) {
+      return streamingState.generatedFiles
+    }
+
+    // Then check the latest message for completed files
+    if (activeConversation?.messages) {
+      const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
+      if (lastMessage?.role === "assistant") {
+        const gameResponse = getLatestGameResponse(lastMessage)
+        if (gameResponse?.files) {
+          return gameResponse.files
+        }
+      }
+    }
+
+    return []
+  }
 
   // Show loading while checking authentication
   if (authLoading) {
@@ -279,7 +335,7 @@ export default function Dashboard() {
     )
   }
 
-  // Redirect if not authenticated (this should be handled by useEffect, but just in case)
+  // Redirect if not authenticated
   if (!isAuthenticated) {
     return (
       <div className="h-screen flex items-center justify-center">
@@ -290,6 +346,10 @@ export default function Dashboard() {
       </div>
     )
   }
+
+  const currentFiles = getCurrentFiles()
+  const hasPreviewUrl = !!streamingState.previewUrl
+  const hasFiles = currentFiles.length > 0
 
   return (
     <div className="h-screen bg-white flex flex-col">
@@ -316,7 +376,7 @@ export default function Dashboard() {
               className="h-8"
             >
               <Code className="h-4 w-4 mr-2" />
-              Code
+              Code ({currentFiles.length})
             </Button>
             <Button
               variant={activeTab === "preview" ? "default" : "ghost"}
@@ -380,19 +440,55 @@ export default function Dashboard() {
               <Share className="h-4 w-4 mr-2" />
               Share
             </Button>
+
+            {/* Updated Export Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8" disabled={!hasFiles}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={handleDownloadHtmlZip} disabled={!hasFiles}>
+                  <FileArchive className="h-4 w-4 mr-2" />
+                  Download HTML ZIP
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleConvertToUnity}
+                  disabled={!hasFiles || isConverting === "unity" || streamingState.isStreaming}
+                >
+                  {isConverting === "unity" ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Code className="h-4 w-4 mr-2" />
+                  )}
+                  Convert to Unity
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleConvertToGodot}
+                  disabled={!hasFiles || isConverting === "godot" || streamingState.isStreaming}
+                >
+                  {isConverting === "godot" ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Code className="h-4 w-4 mr-2" />
+                  )}
+                  Convert to Godot
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Updated Deploy Button */}
             <Button
-              variant="ghost"
               size="sm"
-              className="h-8"
-              onClick={handleDownloadCode}
-              disabled={!streamingState.downloadId}
+              className="h-8 bg-gray-900 hover:bg-gray-800"
+              onClick={handleDeploy}
+              disabled={!hasPreviewUrl}
             >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-            <Button size="sm" className="h-8 bg-gray-900 hover:bg-gray-800">
-              <Zap className="h-4 w-4 mr-2" />
-              Deploy
+              <ExternalLink className="h-4 w-4 mr-2" />
+              {hasPreviewUrl ? "Open Preview" : "Deploy"}
             </Button>
           </div>
 
@@ -430,7 +526,7 @@ export default function Dashboard() {
               className="flex-1"
             >
               <Code className="h-4 w-4 mr-2" />
-              Code
+              Code ({currentFiles.length})
             </Button>
             <Button
               variant={activeTab === "preview" ? "default" : "outline"}
@@ -455,17 +551,22 @@ export default function Dashboard() {
               variant="outline"
               size="sm"
               className="flex-1 bg-transparent"
-              onClick={handleDownloadCode}
-              disabled={!streamingState.downloadId}
+              onClick={handleDownloadHtmlZip}
+              disabled={!hasFiles}
             >
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
           </div>
 
-          <Button size="sm" className="w-full bg-gray-900 hover:bg-gray-800">
-            <Zap className="h-4 w-4 mr-2" />
-            Deploy Game
+          <Button
+            size="sm"
+            className="w-full bg-gray-900 hover:bg-gray-800"
+            onClick={handleDeploy}
+            disabled={!hasPreviewUrl}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            {hasPreviewUrl ? "Open Preview" : "Deploy Game"}
           </Button>
 
           <div className="flex items-center justify-between pt-2 border-t">
@@ -518,22 +619,22 @@ export default function Dashboard() {
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-1">
               {activeConversation?.messages.map((message) => (
-                <MessageItem
-                  key={message._id}
-                  message={message}
-                  onEdit={handleEditMessage}
-                />
+                <MessageItem key={message._id} message={message} onEdit={handleEditMessage} />
               ))}
 
               <StreamingStatus streamingState={streamingState} onStop={stopGeneration} />
 
-              {isSending && (
+              {(isSending || isConverting) && (
                 <div className="flex justify-end mb-6">
                   <div className="flex items-center space-x-3 max-w-[85%]">
                     <div className="bg-blue-600 text-white rounded-2xl px-4 py-3">
                       <div className="flex items-center space-x-2">
                         <div className="w-4 h-4 border-2 border-blue-300 border-t-white rounded-full animate-spin"></div>
-                        <span className="text-sm">Generating your game...</span>
+                        <span className="text-sm">
+                          {isConverting
+                            ? `Converting to ${isConverting === "unity" ? "Unity" : "Godot"}...`
+                            : "Generating your game..."}
+                        </span>
                       </div>
                     </div>
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
@@ -570,16 +671,16 @@ export default function Dashboard() {
                 onKeyDown={handleKeyDown}
                 placeholder="Describe your game idea... (e.g., 'Create a space shooter with boss battles')"
                 className="flex-1 border-gray-200 focus:border-gray-900 focus:ring-0"
-                disabled={isSending || streamingState.isStreaming}
+                disabled={isSending || streamingState.isStreaming || !!isConverting}
                 autoComplete="off"
               />
               <Button
                 onClick={handleSendMessage}
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700 px-4"
-                disabled={streamingState.isStreaming || isSending || !inputMessage.trim()}
+                disabled={streamingState.isStreaming || isSending || !!isConverting || !inputMessage.trim()}
               >
-                {streamingState.isStreaming || isSending ? (
+                {streamingState.isStreaming || isSending || isConverting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4" />
@@ -609,27 +710,22 @@ export default function Dashboard() {
               className={`h-full bg-gray-50 ${activeTab === "preview" ? "hidden" : "w-full"}`}
               style={{ width: activeTab === "code" ? "100%" : "0%" }}
             >
-              <MonacoEditor
-                height="100%"
-                defaultLanguage="javascript"
-                value={code}
-                onChange={(value) => setCode(value || "")}
-                theme="light"
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
-                  lineNumbers: "on",
-                  roundedSelection: false,
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  tabSize: 2,
-                  wordWrap: "on",
-                  folding: true,
-                  bracketPairColorization: { enabled: true },
-                  padding: { top: 16, bottom: 16 },
-                }}
-              />
+              {currentFiles.length > 0 ? (
+                <CodeViewer files={currentFiles} className="h-full" />
+              ) : (
+                <div className="h-full flex items-center justify-center bg-gray-50">
+                  <div className="text-center text-gray-500">
+                    <Code className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <h3 className="text-xl font-semibold mb-2">Code Editor</h3>
+                    <p className="text-gray-400 mb-4">Generated game files will appear here</p>
+                    <div className="text-sm text-gray-500">
+                      {streamingState.isStreaming
+                        ? "Generating code files..."
+                        : "Start a conversation to generate your game!"}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Preview Panel */}
@@ -640,12 +736,12 @@ export default function Dashboard() {
               <div
                 className={`bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-300 ${getViewportClass()}`}
               >
-                {streamingState.previewStatus?.status === "ready" && streamingState.previewStatus.url ? (
+                {streamingState.previewUrl ? (
                   <iframe
-                    src={streamingState.previewStatus.url}
+                    src={streamingState.previewUrl}
                     className="w-full h-full border-0"
                     title="Game Preview"
-                    sandbox="allow-scripts allow-same-origin"
+                    sandbox="allow-scripts allow-same-origin allow-forms"
                   />
                 ) : activeConversation?.messages && activeConversation.messages.length > 0 ? (
                   (() => {
@@ -663,7 +759,7 @@ export default function Dashboard() {
                           src={url}
                           className="w-full h-full border-0"
                           title="Game Preview"
-                          sandbox="allow-scripts allow-same-origin"
+                          sandbox="allow-scripts allow-same-origin allow-forms"
                           onLoad={() => {
                             // Clean up the blob URL after loading
                             setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -679,7 +775,7 @@ export default function Dashboard() {
                           <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
                           <p className="text-gray-400 mb-4">Your generated game will appear here</p>
                           <div className="text-sm text-gray-500">
-                            {streamingState.previewStatus?.status === "building"
+                            {streamingState.isStreaming
                               ? "Building preview..."
                               : "Generate a game using the chat to see it in action!"}
                           </div>
