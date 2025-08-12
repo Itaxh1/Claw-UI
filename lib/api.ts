@@ -218,6 +218,7 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        credentials: 'include',
         headers: this.getAuthHeaders(),
         ...options,
         headers: {
@@ -276,6 +277,7 @@ class ApiClient {
     password: string,
   ): Promise<ApiResponse<{ _id: string; username: string; email: string; createdAt: string; updatedAt: string }>> {
     const response = await this.request<{
+      credentials: 'include',
       _id: string
       username: string
       email: string
@@ -293,6 +295,7 @@ class ApiClient {
     password: string,
   ): Promise<ApiResponse<{ token: string; user: { _id: string; username: string; email: string } }>> {
     const response = await this.request<{
+      credentials: 'include',
       token: string
       user: { _id: string; username: string; email: string }
     }>("/api/auth/login", {
@@ -342,6 +345,7 @@ class ApiClient {
     try {
       const token = this.getToken()
       const response = await fetch(`${API_BASE_URL}/api/conversations/${conversationId}/messages`, {
+        credentials: 'include',
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
@@ -451,7 +455,7 @@ class ApiClient {
       const token = this.getToken()
       const response = await fetch(
         `${API_BASE_URL}/api/conversations/${conversationId}/messages/${messageId}/attachments/${attachmentId}`,
-        {
+        { credentials: 'include',
           headers: {
             ...(token && { Authorization: `Bearer ${token}` }),
           },
@@ -472,6 +476,7 @@ class ApiClient {
     try {
       const token = this.getToken()
       const response = await fetch(`${API_BASE_URL}/api/download/${downloadId}`, {
+        credentials: 'include',
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
         },
