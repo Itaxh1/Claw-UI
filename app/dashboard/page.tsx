@@ -297,11 +297,9 @@ export default function Dashboard() {
       <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-3">
-            <div className="w-6 h-6 bg-black rounded flex items-center justify-center">
-              <Sparkles className="h-3 w-3 text-white" />
-            </div>
+            <img src="/claw-logo.svg" alt="CLAW Logo" className="h-10 w-10 object-contain drop-shadow-lg" />
             <div>
-              <span className="font-semibold text-gray-900">CLAW</span>
+              <span className="font-semibold text-gray-900 text-xl">CLAW</span>
               <Badge variant="secondary" className="ml-2 text-xs">
                 v2.0
               </Badge>
