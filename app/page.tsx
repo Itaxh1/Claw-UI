@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Sparkles, Gamepad2, Eye, Code } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
+import { useEffect } from "react"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -25,10 +26,16 @@ export default function LoginPage() {
   const [formError, setFormError] = useState("")
 
   // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push("/dashboard")
+    }
+  }, [isAuthenticated, router])
+
   if (isAuthenticated) {
-    router.push("/dashboard")
     return null
   }
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
