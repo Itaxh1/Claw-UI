@@ -1,21 +1,19 @@
 "use client"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import axios from "axios"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Sparkles, Gamepad2, Eye, Code } from "lucide-react"
 import { useAuth } from "@/hooks/useAuth"
-import { useEffect } from "react"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, register, isLoading, error, isAuthenticated } = useAuth()
-  
+  const { login, isLoading, error, isAuthenticated } = useAuth()
   const [isLogin, setIsLogin] = useState(true)
   const [formData, setFormData] = useState({
     username: "",
@@ -24,6 +22,7 @@ export default function LoginPage() {
     confirmPassword: ""
   })
   const [formError, setFormError] = useState("")
+  const [formSuccess, setFormSuccess] = useState("")
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -36,10 +35,10 @@ export default function LoginPage() {
     return null
   }
 
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setFormError("")
+    setFormSuccess("")
 
     if (isLogin) {
       // Login
@@ -47,31 +46,43 @@ export default function LoginPage() {
         setFormError("Please fill in all fields")
         return
       }
-
       const success = await login(formData.email, formData.password)
       if (success) {
         router.push("/dashboard")
       }
     } else {
-      // Register
+      // Register (submit to Formspree)
       if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
         setFormError("Please fill in all fields")
         return
       }
-
       if (formData.password !== formData.confirmPassword) {
         setFormError("Passwords do not match")
         return
       }
-
       if (formData.password.length < 6) {
         setFormError("Password must be at least 6 characters")
         return
       }
 
-      const success = await register(formData.username, formData.email, formData.password)
-      if (success) {
-        router.push("/dashboard")
+      try {
+        await axios.post(
+          "https://formspree.io/f/xqalvvez",
+          {
+            username: formData.username,
+            email: formData.email,
+            password: formData.password
+          },
+          {
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        )
+        setFormSuccess("Application submitted! We will approve your application and provide access once reviewed.")
+        setFormData({ username: "", email: "", password: "", confirmPassword: "" })
+      } catch (err) {
+        setFormError("Failed to submit application. Please try again.")
       }
     }
   }
@@ -79,6 +90,7 @@ export default function LoginPage() {
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     setFormError("")
+    setFormSuccess("")
   }
 
   return (
@@ -112,7 +124,6 @@ export default function LoginPage() {
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
               </TabsList>
-
               <TabsContent value="login" className="space-y-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
@@ -142,7 +153,6 @@ export default function LoginPage() {
                   </Button>
                 </form>
               </TabsContent>
-
               <TabsContent value="register" className="space-y-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
@@ -190,12 +200,18 @@ export default function LoginPage() {
                     />
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Creating account..." : "Create Account"}
+                    {isLoading ? "Submitting..." : "Submit Application"}
                   </Button>
+                  {formSuccess && (
+                    <Alert className="mt-4">
+                      <AlertDescription className="text-green-600">
+                        {formSuccess}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </form>
               </TabsContent>
             </Tabs>
-
             {/* Error Display */}
             {(error || formError) && (
               <Alert className="mt-4">
