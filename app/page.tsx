@@ -16,10 +16,11 @@ export default function LoginPage() {
   const { login, isLoading, error, isAuthenticated } = useAuth()
   const [isLogin, setIsLogin] = useState(true)
   const [formData, setFormData] = useState({
-    username: "",
+    firstName: "",
+    lastName: "",
+    linkedinUrl: "",
     email: "",
-    password: "",
-    confirmPassword: ""
+    password: "", // Kept for login form
   })
   const [formError, setFormError] = useState("")
   const [formSuccess, setFormSuccess] = useState("")
@@ -39,7 +40,6 @@ export default function LoginPage() {
     e.preventDefault()
     setFormError("")
     setFormSuccess("")
-
     if (isLogin) {
       // Login
       if (!formData.email || !formData.password) {
@@ -52,26 +52,23 @@ export default function LoginPage() {
       }
     } else {
       // Register (submit to Formspree)
-      if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
+      if (!formData.firstName || !formData.lastName || !formData.linkedinUrl || !formData.email) {
         setFormError("Please fill in all fields")
         return
       }
-      if (formData.password !== formData.confirmPassword) {
-        setFormError("Passwords do not match")
+      // Basic LinkedIn URL validation
+      if (!formData.linkedinUrl.match(/^https?:\/\/(www\.)?linkedin\.com\/.*$/)) {
+        setFormError("Please enter a valid LinkedIn URL")
         return
       }
-      if (formData.password.length < 6) {
-        setFormError("Password must be at least 6 characters")
-        return
-      }
-
       try {
         await axios.post(
-          "https://formspree.io/f/xqalvvez",
+          "https://formspree.io/f/xyzdkoqg",
           {
-            username: formData.username,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            linkedinUrl: formData.linkedinUrl,
             email: formData.email,
-            password: formData.password
           },
           {
             headers: {
@@ -80,7 +77,7 @@ export default function LoginPage() {
           }
         )
         setFormSuccess("Application submitted! We will approve your application and provide access once reviewed.")
-        setFormData({ username: "", email: "", password: "", confirmPassword: "" })
+        setFormData({ firstName: "", lastName: "", linkedinUrl: "", email: "", password: "" })
       } catch (err) {
         setFormError("Failed to submit application. Please try again.")
       }
@@ -94,40 +91,40 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         {/* Header */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 animate-slideInRight">
           <div className="flex items-center justify-center space-x-3 mb-4">
-            <div className="w-8 h-8 bg-black rounded flex items-center justify-center">
-              <Sparkles className="h-4 w-4 text-white" />
-            </div>
-            <div>
-              <span className="text-2xl font-bold text-gray-900">CLAW</span>
+           <div className="flex items-center justify-center space-x-3 mb-4">
+              <img src="/claw-logo.svg" alt="CLAW Logo" className="h-10 w-10 object-contain rounded-md" />
+              <div>
+                {/* <span className="text-2xl font-bold text-foreground text-glow">CLAW</span> */}
+              </div>
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to CLAW</h1>
-          <p className="text-gray-600">AI-powered game development platform</p>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Welcome to CLAW</h1>
+          <p className="text-muted-foreground">AI-powered game development platform</p>
         </div>
-
         {/* Login/Register Card */}
-        <Card className="shadow-xl">
+        <Card className="shadow-glow glass-strong animate-fadeInUp">
           <CardHeader className="text-center">
-            <CardTitle className="text-xl">Get Started</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-xl text-foreground">Get Started</CardTitle>
+            <CardDescription className="text-muted-foreground">
               {isLogin ? "Sign in to your account" : "Create a new account"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={isLogin ? "login" : "register"} onValueChange={(value) => setIsLogin(value === "login")}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Login</TabsTrigger>
-                <TabsTrigger value="register">Register</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 bg-secondary/50 rounded-lg glass">
+              <TabsTrigger value="login" className="text-white hover:bg-secondary hover:text-white">Login</TabsTrigger>
+<TabsTrigger value="register" className="text-white hover:bg-secondary hover:text-white">Register</TabsTrigger>
+
               </TabsList>
               <TabsContent value="login" className="space-y-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email" className="text-foreground">Email</Label>
                     <Input
                       id="email"
                       type="email"
@@ -135,10 +132,11 @@ export default function LoginPage() {
                       value={formData.email}
                       onChange={(e) => handleInputChange("email", e.target.value)}
                       disabled={isLoading}
+                      className="game-input text-foreground h-10"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password" className="text-foreground">Password</Label>
                     <Input
                       id="password"
                       type="password"
@@ -146,9 +144,14 @@ export default function LoginPage() {
                       value={formData.password}
                       onChange={(e) => handleInputChange("password", e.target.value)}
                       disabled={isLoading}
+                      className="game-input text-foreground h-10"
                     />
                   </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full game-button h-10 text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-glow"
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Signing in..." : "Sign In"}
                   </Button>
                 </form>
@@ -156,18 +159,43 @@ export default function LoginPage() {
               <TabsContent value="register" className="space-y-4">
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="username">Username</Label>
+                    <Label htmlFor="firstName" className="text-foreground">First Name</Label>
                     <Input
-                      id="username"
+                      id="firstName"
                       type="text"
-                      placeholder="Choose a username"
-                      value={formData.username}
-                      onChange={(e) => handleInputChange("username", e.target.value)}
+                      placeholder="Enter your first name"
+                      value={formData.firstName}
+                      onChange={(e) => handleInputChange("firstName", e.target.value)}
                       disabled={isLoading}
+                      className="game-input text-foreground h-10"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="lastName" className="text-foreground">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      type="text"
+                      placeholder="Enter your last name"
+                      value={formData.lastName}
+                      onChange={(e) => handleInputChange("lastName", e.target.value)}
+                      disabled={isLoading}
+                      className="game-input text-foreground h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="linkedinUrl" className="text-foreground">LinkedIn URL</Label>
+                    <Input
+                      id="linkedinUrl"
+                      type="url"
+                      placeholder="Enter your LinkedIn URL"
+                      value={formData.linkedinUrl}
+                      onChange={(e) => handleInputChange("linkedinUrl", e.target.value)}
+                      disabled={isLoading}
+                      className="game-input text-foreground h-10"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-foreground">Email ID</Label>
                     <Input
                       id="email"
                       type="email"
@@ -175,36 +203,19 @@ export default function LoginPage() {
                       value={formData.email}
                       onChange={(e) => handleInputChange("email", e.target.value)}
                       disabled={isLoading}
+                      className="game-input text-foreground h-10"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      placeholder="Choose a password"
-                      value={formData.password}
-                      onChange={(e) => handleInputChange("password", e.target.value)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Confirm Password</Label>
-                    <Input
-                      id="confirmPassword"
-                      type="password"
-                      placeholder="Confirm your password"
-                      value={formData.confirmPassword}
-                      onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
+                  <Button
+                    type="submit"
+                    className="w-full game-button h-10 text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-glow"
+                    disabled={isLoading}
+                  >
                     {isLoading ? "Submitting..." : "Submit Application"}
                   </Button>
                   {formSuccess && (
-                    <Alert className="mt-4">
-                      <AlertDescription className="text-green-600">
+                    <Alert className="mt-4 border-game-success">
+                      <AlertDescription className="text-game-success">
                         {formSuccess}
                       </AlertDescription>
                     </Alert>
@@ -214,31 +225,30 @@ export default function LoginPage() {
             </Tabs>
             {/* Error Display */}
             {(error || formError) && (
-              <Alert className="mt-4">
-                <AlertDescription className="text-red-600">
+              <Alert className="mt-4 border-game-warning">
+                <AlertDescription className="text-game-warning">
                   {error || formError}
                 </AlertDescription>
               </Alert>
             )}
           </CardContent>
         </Card>
-
         {/* Features Preview */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-            <Gamepad2 className="h-8 w-8 mx-auto mb-2 text-blue-600" />
-            <h3 className="font-semibold text-sm">AI Game Generation</h3>
-            <p className="text-xs text-gray-600">Create games with natural language</p>
+          <div className="text-center p-4 bg-card rounded-lg shadow-card glass animate-float">
+            <Gamepad2 className="h-8 w-8 mx-auto mb-2 text-primary" />
+            <h3 className="font-semibold text-sm text-foreground">AI Game Generation</h3>
+            <p className="text-xs text-muted-foreground">Create games with natural language</p>
           </div>
-          <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-            <Code className="h-8 w-8 mx-auto mb-2 text-green-600" />
-            <h3 className="font-semibold text-sm">Code Editor</h3>
-            <p className="text-xs text-gray-600">Edit and customize your games</p>
+          <div className="text-center p-4 bg-card rounded-lg shadow-card glass animate-float">
+            <Code className="h-8 w-8 mx-auto mb-2 text-primary" />
+            <h3 className="font-semibold text-sm text-foreground">Code Editor</h3>
+            <p className="text-xs text-muted-foreground">Edit and customize your games</p>
           </div>
-          <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-            <Eye className="h-8 w-8 mx-auto mb-2 text-purple-600" />
-            <h3 className="font-semibold text-sm">Live Preview</h3>
-            <p className="text-xs text-gray-600">See your games in action</p>
+          <div className="text-center p-4 bg-card rounded-lg shadow-card glass animate-float">
+            <Eye className="h-8 w-8 mx-auto mb-2 text-primary" />
+            <h3 className="font-semibold text-sm text-foreground">Live Preview</h3>
+            <p className="text-xs text-muted-foreground">See your games in action</p>
           </div>
         </div>
       </div>

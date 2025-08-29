@@ -1,6 +1,5 @@
 "use client"
-import type React from "react"
-import { useEffect, useState, useCallback, useRef } from "react"
+import React, { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -74,16 +73,20 @@ export default function Dashboard() {
   const [codePanelWidth, setCodePanelWidth] = useState(50)
   const [isResizing, setIsResizing] = useState(false)
   const [isReloading, setIsReloading] = useState(false)
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLIFrameElement>(null)
 
-  // Automatically switch to code/preview view when generation completes
   useEffect(() => {
     if (!streamingState.isStreaming && streamingState.generatedFiles.length > 0 && isChatView) {
       setIsChatView(false)
       setActiveTab("preview")
     }
   }, [streamingState.isStreaming, streamingState.generatedFiles])
+
+  useEffect(() => {
+    setSelectedMessageId(null)
+  }, [activeConversation])
 
   useEffect(() => {
     console.log("🏠 Dashboard - Auth state:", {
@@ -163,7 +166,7 @@ export default function Dashboard() {
   }
 
   const handleDeploy = () => {
-    const previewUrl = streamingState.previewUrl
+    const previewUrl = streamingState.previewUrl || getSelectedPreviewUrl()
     if (previewUrl) {
       console.log("🚀 Opening preview URL:", previewUrl)
       window.open(previewUrl, "_blank", "noopener,noreferrer")
@@ -304,7 +307,7 @@ export default function Dashboard() {
   }, [handleTouchMove])
 
   const handleReloadPreview = () => {
-    if (previewRef.current && (streamingState.previewUrl || getCurrentFiles().length > 0)) {
+    if (previewRef.current && (streamingState.previewUrl || getSelectedPreviewUrl() || getCurrentFiles().length > 0)) {
       setIsReloading(true)
       const reloadIframe = () => {
         const iframe = previewRef.current
@@ -332,23 +335,43 @@ export default function Dashboard() {
       return streamingState.generatedFiles
     }
     if (activeConversation?.messages) {
-      const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
-      if (lastMessage?.role === "assistant") {
-        const gameResponse = getLatestGameResponse(lastMessage)
-        if (gameResponse?.files) {
-          return gameResponse.files
+      let targetMessage = activeConversation.messages[activeConversation.messages.length - 1]
+      if (selectedMessageId) {
+        const found = activeConversation.messages.find((m) => m._id === selectedMessageId)
+        if (found && found.gameResponse) {
+          targetMessage = found
         }
       }
+      const gameResponse = getLatestGameResponse(targetMessage)
+      return gameResponse?.files || []
     }
     return []
   }
 
+  const getSelectedPreviewUrl = () => {
+    if (streamingState.previewUrl) {
+      return streamingState.previewUrl
+    }
+    if (activeConversation?.messages) {
+      let targetMessage = activeConversation.messages[activeConversation.messages.length - 1]
+      if (selectedMessageId) {
+        const found = activeConversation.messages.find((m) => m._id === selectedMessageId)
+        if (found && found.gameResponse) {
+          targetMessage = found
+        }
+      }
+      const gameResponse = getLatestGameResponse(targetMessage)
+      return gameResponse?.previewUrl || ""
+    }
+    return ""
+  }
+
   if (authLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg font-medium">Loading dashboard...</p>
+          <div className="w-12 h-12 border-4 border-muted border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground text-lg font-medium">Loading dashboard...</p>
         </div>
       </div>
     )
@@ -356,42 +379,43 @@ export default function Dashboard() {
 
   if (!isAuthenticated) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg font-medium">Redirecting to login...</p>
+          <div className="w-12 h-12 border-4 border-muted border-t-primary rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground text-lg font-medium">Redirecting to login...</p>
         </div>
       </div>
     )
   }
 
   const currentFiles = getCurrentFiles()
-  const hasPreviewUrl = !!streamingState.previewUrl
+  const hasPreviewUrl = !!streamingState.previewUrl || !!getSelectedPreviewUrl()
   const hasFiles = currentFiles.length > 0
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col font-sans">
+    <div className="h-screen flex flex-col font-sans bg-background text-foreground">
       {/* Header */}
-      <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white shadow-sm">
+      <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-card shadow-glow glass-strong animate-slideInRight">
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden h-10 w-10 p-0 hover:bg-gray-100 rounded-full"
+            className="md:hidden h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full"
             onClick={() => setIsChatSidebarOpen(!isChatSidebarOpen)}
           >
-            <MessagesSquare className="h-5 w-5 text-gray-600" />
+            <MessagesSquare className="h-5 w-5" />
           </Button>
           <div className="flex items-center space-x-3">
-            <img src="/claw-logo.svg" alt="CLAW Logo" className="h-10 w-10 object-contain " />
+            
+            <img src="/claw-logo.svg" alt="CLAW Logo" className="h-10 w-10 object-contain rounded-md" />
             <div>
-              <span className="font-semibold text-gray-900 text-xl">CLAW</span>
-              <Badge variant="secondary" className="ml-2 text-xs bg-blue-100 text-blue-800">
+              <span className="font-bold text-foreground text-xl text-glow">CLAW</span>
+              <Badge variant="secondary" className="ml-2 text-xs bg-primary/20 text-primary border-primary/30">
                 v2.0
               </Badge>
             </div>
           </div>
-          <Separator orientation="vertical" className="h-6 bg-gray-200" />
+          <Separator orientation="vertical" className="h-6 bg-border" />
           <div className="flex items-center space-x-2">
             <Button
               variant={isChatView ? "default" : "ghost"}
@@ -400,8 +424,10 @@ export default function Dashboard() {
                 setIsChatView(true)
                 setIsChatSidebarOpen(false)
               }}
-              className={`h-10 px-3 rounded-lg ${
-                isChatView ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 hover:bg-gray-100"
+              className={`game-button h-10 px-3 rounded-lg transition-all duration-200 ${
+                isChatView
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-glow animate-pulse-glow"
+                  : "text-black hover:bg-secondary hover:text-black"
               }`}
             >
               <MessagesSquare className="h-5 w-5 mr-2" />
@@ -415,63 +441,52 @@ export default function Dashboard() {
                   setIsChatView(false)
                   setActiveTab("preview")
                 }}
-                className={`h-10 px-3 rounded-lg ${
-                  !isChatView ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 hover:bg-gray-100"
+                className={`game-button h-10 px-3 rounded-lg transition-all duration-200 ${
+                  !isChatView
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground shadow-glow animate-pulse-glow"
+                    : "text-black hover:bg-secondary hover:text-black"
                 }`}
               >
                 <Code className="h-5 w-5 mr-2" />
                 Code/Preview
               </Button>
             )}
-            {activeConversation && (
-              <div className="hidden md:flex items-center space-x-2">
-                <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                  <Gamepad2 className="h-4 w-4 mr-1" />
-                  {activeConversation.title}
-                </Badge>
-                {systemStatus && (
-                  <Badge
-                    variant={systemStatus.status === "ok" ? "default" : "secondary"}
-                    className="text-xs bg-gray-100 text-gray-600"
-                  >
-                    <Activity className="h-4 w-4 mr-1" />
-                    {systemStatus.status}
-                  </Badge>
-                )}
-              </div>
-            )}
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          <div className="hidden md:flex items-center space-x-1 bg-gray-100 rounded-lg p-1">
+          <div className="hidden md:flex items-center space-x-1 bg-secondary/50 rounded-lg p-1 glass">
             <Button
               variant={viewMode === "desktop" ? "default" : "ghost"}
               size="sm"
               onClick={() => setViewMode("desktop")}
-              className="h-10 w-10 p-0 hover:bg-gray-200 rounded-full"
+              className="game-button h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full transition-colors"
             >
-              <Monitor className="h-5 w-5 text-gray-600" />
+              <Monitor className="h-5 w-5" />
             </Button>
             <Button
               variant={viewMode === "tablet" ? "default" : "ghost"}
               size="sm"
               onClick={() => setViewMode("tablet")}
-              className="h-10 w-10 p-0 hover:bg-gray-200 rounded-full"
+              className="game-button h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full transition-colors"
             >
-              <Tablet className="h-5 w-5 text-gray-600" />
+              <Tablet className="h-5 w-5" />
             </Button>
             <Button
               variant={viewMode === "mobile" ? "default" : "ghost"}
               size="sm"
               onClick={() => setViewMode("mobile")}
-              className="h-10 w-10 p-0 hover:bg-gray-200 rounded-full"
+              className="game-button h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full transition-colors"
             >
-              <Smartphone className="h-5 w-5 text-gray-600" />
+              <Smartphone className="h-5 w-5" />
             </Button>
           </div>
-          <Separator orientation="vertical" className="h-6 bg-gray-200 hidden md:block" />
+          <Separator orientation="vertical" className="h-6 bg-border hidden md:block" />
           <div className="hidden md:flex items-center space-x-2">
-            <Button variant="ghost" size="sm" className="h-10 px-3 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="game-button h-10 px-3 text-black hover:bg-secondary hover:text-black rounded-lg"
+            >
               <Share className="h-5 w-5 mr-2" />
               Share
             </Button>
@@ -480,7 +495,7 @@ export default function Dashboard() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-10 px-3 text-gray-600 hover:bg-gray-100 rounded-lg"
+                  className="game-button h-10 px-3 text-black hover:bg-secondary hover:text-black rounded-lg"
                   disabled={!hasFiles}
                 >
                   <Download className="h-5 w-5 mr-2" />
@@ -488,11 +503,11 @@ export default function Dashboard() {
                   <ChevronDown className="h-4 w-4 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48 bg-white shadow-lg rounded-lg">
+              <DropdownMenuContent align="end" className="w-48 game-card shadow-elevated rounded-lg border-border">
                 <DropdownMenuItem
                   onClick={handleDownloadHtmlZip}
                   disabled={!hasFiles}
-                  className="hover:bg-gray-100 focus:bg-gray-100"
+                  className="hover:bg-secondary hover:text-black focus:bg-secondary focus:text-black text-foreground"
                 >
                   <FileArchive className="h-4 w-4 mr-2" />
                   Download HTML ZIP
@@ -500,7 +515,7 @@ export default function Dashboard() {
                 <DropdownMenuItem
                   onClick={handleConvertToUnity}
                   disabled={!hasFiles || isConverting === "unity" || streamingState.isStreaming}
-                  className="hover:bg-gray-100 focus:bg-gray-100"
+                  className="hover:bg-secondary hover:text-black focus:bg-secondary focus:text-black text-foreground"
                 >
                   {isConverting === "unity" ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -512,7 +527,7 @@ export default function Dashboard() {
                 <DropdownMenuItem
                   onClick={handleConvertToGodot}
                   disabled={!hasFiles || isConverting === "godot" || streamingState.isStreaming}
-                  className="hover:bg-gray-100 focus:bg-gray-100"
+                  className="hover:bg-secondary hover:text-black focus:bg-secondary focus:text-black text-foreground"
                 >
                   {isConverting === "godot" ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -525,7 +540,7 @@ export default function Dashboard() {
             </DropdownMenu>
             <Button
               size="sm"
-              className="h-10 px-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
+              className="game-button h-10 px-3 text-primary-foreground rounded-lg"
               onClick={handleDeploy}
               disabled={!hasPreviewUrl}
             >
@@ -533,14 +548,14 @@ export default function Dashboard() {
               {hasPreviewUrl ? "Open Preview" : "Deploy"}
             </Button>
           </div>
-          <Separator orientation="vertical" className="h-6 bg-gray-200 hidden md:block" />
+          <Separator orientation="vertical" className="h-6 bg-border hidden md:block" />
           <div className="hidden md:flex items-center space-x-2">
-            <span className="text-sm text-gray-600 font-medium">Hi, {user?.username}</span>
+            <span className="text-sm text-muted-foreground font-medium">Hi, {user?.username}</span>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="h-10 w-10 p-0 text-gray-600 hover:bg-gray-100 rounded-full"
+              className="game-button h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full"
             >
               <LogOut className="h-5 w-5" />
             </Button>
@@ -548,17 +563,16 @@ export default function Dashboard() {
           <Button
             variant="ghost"
             size="sm"
-            className="md:hidden h-10 w-10 p-0 text-gray-600 hover:bg-gray-100 rounded-full"
+            className="md:hidden h-10 w-10 p-0 text-black hover:bg-secondary hover:text-black rounded-full"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           >
             {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
         </div>
       </header>
-
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden bg-white border-b border-gray-200 p-4 space-y-3 shadow-sm">
+        <div className="md:hidden bg-card border-b border-border p-4 space-y-3 shadow-card glass animate-slideInRight">
           <div className="flex space-x-2">
             <Button
               variant={isChatView ? "default" : "outline"}
@@ -568,8 +582,10 @@ export default function Dashboard() {
                 setIsMobileMenuOpen(false)
                 setIsChatSidebarOpen(false)
               }}
-              className={`flex-1 h-10 rounded-lg ${
-                isChatView ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 border-gray-300 hover:bg-gray-100"
+              className={`game-button flex-1 h-10 rounded-lg ${
+                isChatView
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+                  : "text-black border-border hover:bg-secondary hover:text-black"
               }`}
             >
               <MessagesSquare className="h-5 w-5 mr-2" />
@@ -584,8 +600,10 @@ export default function Dashboard() {
                   setActiveTab("preview")
                   setIsMobileMenuOpen(false)
                 }}
-                className={`flex-1 h-10 rounded-lg ${
-                  !isChatView ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 border-gray-300 hover:bg-gray-100"
+                className={`game-button flex-1 h-10 rounded-lg ${
+                  !isChatView
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+                    : "text-black border-border hover:bg-secondary hover:text-black"
                 }`}
               >
                 <Code className="h-5 w-5 mr-2" />
@@ -597,7 +615,7 @@ export default function Dashboard() {
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 h-10 text-gray-600 border-gray-300 hover:bg-gray-100 rounded-lg"
+              className="game-button flex-1 h-10 text-black border-border hover:bg-secondary hover:text-black rounded-lg"
             >
               <Share className="h-5 w-5 mr-2" />
               Share
@@ -605,7 +623,7 @@ export default function Dashboard() {
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 h-10 text-gray-600 border-gray-300 hover:bg-gray-100 rounded-lg"
+              className="game-button flex-1 h-10 text-black border-border hover:bg-secondary hover:text-black rounded-lg"
               onClick={handleDownloadHtmlZip}
               disabled={!hasFiles}
             >
@@ -615,20 +633,20 @@ export default function Dashboard() {
           </div>
           <Button
             size="sm"
-            className="w-full h-10 bg-blue-500 hover:bg-blue-600 text-white rounded-lg"
+            className="game-button w-full h-10 text-primary-foreground rounded-lg"
             onClick={handleDeploy}
             disabled={!hasPreviewUrl}
           >
             <ExternalLink className="h-5 w-5 mr-2" />
             {hasPreviewUrl ? "Open Preview" : "Deploy Game"}
           </Button>
-          <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-            <span className="text-sm text-gray-600 font-medium">Hi, {user?.username}</span>
+          <div className="flex items-center justify-between pt-2 border-t border-border">
+            <span className="text-sm text-muted-foreground font-medium">Hi, {user?.username}</span>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="h-10 text-gray-600 hover:bg-gray-100 rounded-lg"
+              className="game-button h-10 text-black hover:bg-secondary hover:text-black rounded-lg"
             >
               <LogOut className="h-5 w-5 mr-2" />
               Logout
@@ -636,26 +654,25 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
       {/* Main Content */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Chat Panel (Shown when isChatView is true) */}
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-0">
+        {/* Chat Panel */}
         {isChatView && (
-          <div className="flex flex-col bg-white w-full h-full">
+          <div className="flex flex-col bg-card w-full h-full">
             <div className="flex flex-1 overflow-hidden">
-              {/* Chat Sidebar for Conversations */}
+              {/* Chat Sidebar */}
               <div
-                className={`bg-gray-50 border-r border-gray-200 transition-all duration-300 ease-in-out ${
+                className={`bg-sidebar-background border-r border-sidebar-border transition-all duration-300 ease-in-out ${
                   isChatSidebarOpen ? "w-60" : "w-0"
-                } md:w-60 overflow-hidden`}
+                } md:w-60 overflow-hidden glass animate-slideInRight`}
               >
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-900 text-sm">Conversations</h3>
+                    <h3 className="font-medium text-sidebar-foreground text-sm">Conversations</h3>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 rounded-full"
+                      className="game-button h-8 w-8 p-0 text-black hover:bg-sidebar-accent hover:text-black rounded-full"
                       onClick={handleNewConversation}
                     >
                       <Plus className="h-4 w-4" />
@@ -673,8 +690,8 @@ export default function Dashboard() {
                             }}
                             className={`w-full text-left px-3 py-2 rounded text-sm transition-colors duration-200 ${
                               activeConversation?._id === conversation._id
-                                ? "bg-blue-100 text-blue-900"
-                                : "text-gray-700 hover:bg-gray-100"
+                                ? "bg-sidebar-primary/20 text-sidebar-primary"
+                                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
                             }`}
                           >
                             <MessageSquare className="h-4 w-4 inline mr-2" />
@@ -688,34 +705,90 @@ export default function Dashboard() {
               </div>
               {/* Chat Messages */}
               <div className="flex-1 flex flex-col">
-                <div className="p-3 border-b border-gray-200 bg-white flex items-center justify-between">
-                  <h2 className="font-semibold text-gray-900 text-lg">Game Development Chat</h2>
+                <div className="p-3 border-b border-border bg-card flex items-center justify-between">
+                  <h2 className="font-semibold text-foreground text-lg text-glow">Game Development Chat</h2>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 rounded-full"
+                    className="game-button h-8 w-8 p-0 text-black hover:bg-secondary hover:text-black rounded-full"
                     onClick={() => setIsChatSidebarOpen(!isChatSidebarOpen)}
                   >
                     {isChatSidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                   </Button>
                 </div>
-                <ScrollArea className="flex-1 p-3 bg-gray-50">
-                  <div className="space-y-2">
-                    {activeConversation?.messages.map((message) => (
-                      <MessageItem
-                        key={message._id}
-                        message={message}
-                        onEdit={handleEditMessage}
-                        className="animate-fade-in bg-white rounded-lg p-3 text-gray-800 shadow-sm"
-                      />
-                    ))}
+                <ScrollArea className="flex-1 p-3 bg-secondary/10">
+                  <div className="space-y-4">
+                    {activeConversation?.messages?.map((message, idx) => {
+                      if (!message) return null
+                      const hasResponse = !!message.gameResponse
+                      const prompt = message.gameResponse?.prompt || ""
+                      const version = message.gameResponse?.version
+                      const status = message.gameResponse?.status
+                      const filesCount = message.gameResponse?.files?.length || 0
+                      return (
+                        <React.Fragment key={message._id || `msg-${idx}`}>
+                          <MessageItem
+                            message={message}
+                            onEdit={handleEditMessage}
+                            className="animate-fadeInUp game-card rounded-lg p-3 text-foreground shadow-card"
+                          />
+                          {hasResponse && (
+                            <div className="flex justify-start mb-4">
+                              <div className="max-w-[85%] game-card rounded-lg p-3 shadow-card border border-border">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  {version && (
+                                    <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30">
+                                      Version {version}
+                                    </Badge>
+                                  )}
+                                  {status && (
+                                    <Badge
+                                      variant="outline"
+                                      className={
+                                        status === "completed"
+                                          ? "text-game-success border-game-success"
+                                          : "text-game-warning border-game-warning"
+                                      }
+                                    >
+                                      {status.toUpperCase()}
+                                    </Badge>
+                                  )}
+                                </div>
+                                {prompt && (
+                                  <p className="text-muted-foreground text-sm mb-2">
+                                    Prompt: {prompt.slice(0, 100)}
+                                    {prompt.length > 100 ? "..." : ""}
+                                  </p>
+                                )}
+                                {filesCount > 0 && (
+                                  <p className="text-muted-foreground text-sm mb-2">Generated {filesCount} files</p>
+                                )}
+                                <Button
+                                  variant={selectedMessageId === message._id ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => setSelectedMessageId(message._id)}
+                                  className={`game-button h-8 text-sm ${
+                                    selectedMessageId === message._id
+                                      ? "bg-primary text-primary-foreground"
+                                      : "text-black border-primary hover:bg-primary hover:text-primary-foreground"
+                                  }`}
+                                >
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  {selectedMessageId === message._id ? "Viewing this Version" : "View Code & Preview"}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </React.Fragment>
+                      )
+                    })}
                     <StreamingStatus streamingState={streamingState} onStop={stopGeneration} />
                     {(isSending || isConverting) && (
                       <div className="flex justify-end mb-2 animate-pulse">
                         <div className="flex items-center space-x-2 max-w-[85%]">
-                          <div className="bg-blue-500 text-white rounded-lg px-3 py-2 shadow-sm">
+                          <div className="bg-primary text-primary-foreground rounded-lg px-3 py-2 shadow-glow">
                             <div className="flex items-center space-x-2">
-                              <div className="w-4 h-4 border-4 border-blue-300 border-t-white rounded-full animate-spin"></div>
+                              <div className="w-4 h-4 border-4 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"></div>
                               <span className="text-sm font-medium">
                                 {isConverting
                                   ? `Converting to ${isConverting === "unity" ? "Unity" : "Godot"}...`
@@ -723,18 +796,18 @@ export default function Dashboard() {
                               </span>
                             </div>
                           </div>
-                          <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
-                            <User className="h-4 w-4 text-white" />
+                          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0 shadow-glow">
+                            <User className="h-4 w-4 text-primary-foreground" />
                           </div>
                         </div>
                       </div>
                     )}
                   </div>
                 </ScrollArea>
-                <div className="p-3 border-t border-gray-200 bg-white">
-                  <details className="text-sm text-gray-500 mb-2" onToggle={(e) => e.stopPropagation()}>
+                <div className="p-3 border-t border-border bg-card">
+                  <details className="text-sm text-muted-foreground mb-2" onToggle={(e) => e.stopPropagation()}>
                     <summary
-                      className="cursor-pointer hover:text-gray-700 flex items-center space-x-2"
+                      className="cursor-pointer hover:text-foreground flex items-center space-x-2"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Paperclip className="h-4 w-4" />
@@ -751,14 +824,14 @@ export default function Dashboard() {
                       onChange={(e) => setInputMessage(e.target.value)}
                       onKeyDown={handleKeyDown}
                       placeholder="Describe your game idea..."
-                      className="flex-1 bg-white border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-lg text-sm text-gray-800 h-10"
+                      className="game-input flex-1 text-sm text-foreground h-10"
                       disabled={isSending || streamingState.isStreaming || !!isConverting}
                       autoComplete="off"
                     />
                     <Button
                       onClick={handleSendMessage}
                       size="sm"
-                      className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg h-10 w-10 p-0"
+                      className="game-button h-10 w-10 p-0 text-primary-foreground"
                       disabled={streamingState.isStreaming || isSending || !!isConverting || !inputMessage.trim()}
                     >
                       {streamingState.isStreaming || isSending || isConverting ? (
@@ -773,159 +846,63 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
-        {/* Preview and Code Panels (Shown when isChatView is false and files exist) */}
+        {/* Preview and Code Panels */}
         {!isChatView && hasFiles && (
           <div className="flex-1 flex flex-col md:flex-row m-2 md:m-4">
+            {/* Code Viewer */}
+            <div className="game-card rounded-lg" style={{ width: `${codePanelWidth}%` }}>
+              <CodeViewer files={currentFiles} className="h-full" />
+            </div>
+            {/* Divider */}
             <div
-              className="h-full bg-gray-50 flex items-center justify-center p-3 md:p-4 h-full rounded-lg shadow-sm"
-              style={{ width: `${codePanelWidth}%` }}
+              className="w-2 bg-border cursor-ew-resize flex items-center justify-center"
+              onMouseDown={handleMouseDown}
+              onTouchStart={handleTouchStart}
             >
-              <div
-                className={`bg-white rounded-lg border border-gray-200 overflow-hidden transition-all duration-300 ${getViewportClass()}`}
-              >
-                {activeTab === "preview" && (streamingState.previewUrl ? (
+              <div className="w-1 h-10 bg-primary rounded-full" />
+            </div>
+            {/* Preview */}
+            <div
+              className="h-full bg-secondary/20 flex items-center justify-center p-3 md:p-4 rounded-lg glass"
+              style={{ width: `${100 - codePanelWidth}%` }}
+            >
+              <div className={`game-card rounded-lg border border-border overflow-hidden transition-all duration-300 ${getViewportClass()}`}>
+                {activeTab === "preview" && (streamingState.previewUrl || getSelectedPreviewUrl()) ? (
                   <div className="relative w-full h-full">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="absolute top-2 right-2 h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 rounded-full z-10"
+                      className="game-button absolute top-2 right-2 h-8 w-8 p-0 text-black hover:bg-secondary hover:text-black rounded-full z-10"
                       onClick={handleReloadPreview}
                       disabled={isReloading || streamingState.isStreaming}
                     >
-                      {isReloading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
+                      {isReloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                     </Button>
                     <iframe
                       ref={previewRef}
-                      src={streamingState.previewUrl}
+                      src={streamingState.previewUrl || getSelectedPreviewUrl()}
                       className="w-full h-full border-0"
                       title="Game Preview"
                       sandbox="allow-scripts allow-same-origin allow-forms"
                     />
                   </div>
-                ) : activeConversation?.messages && activeConversation.messages.length > 0 ? (
-                  (() => {
-                    const lastMessage = activeConversation.messages[activeConversation.messages.length - 1]
-                    const gameResponse = lastMessage?.role === "assistant" ? getLatestGameResponse(lastMessage) : null
-                    const htmlFile = gameResponse?.files?.find((f) => f.path.includes(".html") || f.type === "html")
-                    if (htmlFile && gameResponse?.status === "completed") {
-                      const blob = new Blob([htmlFile.content], { type: "text/html" })
-                      const url = URL.createObjectURL(blob)
-                      return (
-                        <div className="relative w-full h-full">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="absolute top-2 right-2 h-8 w-8 p-0 text-gray-600 hover:bg-gray-100 rounded-full z-10"
-                            onClick={handleReloadPreview}
-                            disabled={isReloading || streamingState.isStreaming}
-                          >
-                            {isReloading ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <iframe
-                            ref={previewRef}
-                            src={url}
-                            className="w-full h-full border-0"
-                            title="Game Preview"
-                            sandbox="allow-scripts allow-same-origin allow-forms"
-                            onLoad={() => {
-                              setTimeout(() => URL.revokeObjectURL(url), 1000)
-                            }}
-                          />
-                        </div>
-                      )
-                    }
-                    return (
-                      <div className="w-full h-full bg-gray-100 flex items-center justify-center rounded-lg">
-                        <div className="text-center text-gray-600">
-                          <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                          <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
-                          <p className="text-gray-500 mb-4">Your generated game will appear here</p>
-                          <div className="text-sm text-gray-400">
-                            {streamingState.isStreaming
-                              ? "Building preview..."
-                              : "Generate a game using the chat to see it in action!"}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })()
                 ) : (
-                  <div className="w-full h-full bg-gray-100 flex items-center justify-center rounded-lg">
-                    <div className="text-center text-gray-600">
-                      <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                      <h3 className="text-xl font-semibold mb-2">Game Preview</h3>
-                      <p className="text-gray-500 mb-4">Your generated game will appear here</p>
-                      <div className="text-sm text-gray-400">Generate a game using the chat to see it in action!</div>
+                  <div className="w-full h-full bg-secondary/20 flex items-center justify-center rounded-lg">
+                    <div className="text-center text-muted-foreground">
+                      <Gamepad2 className="h-16 w-16 mx-auto mb-4 opacity-50 animate-float" />
+                      <h3 className="text-xl font-semibold mb-2 text-foreground">Game Preview</h3>
+                      <p className="text-muted-foreground mb-4">Your generated game will appear here</p>
+                      <div className="text-sm text-muted-foreground">
+                        {streamingState.isStreaming ? "Building preview..." : "Generate a game using the chat to see it in action!"}
+                      </div>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-            <div
-              className="w-2 bg-gray-200 cursor-ew-resize flex items-center justify-center"
-              onMouseDown={handleMouseDown}
-              onTouchStart={handleTouchStart}
-            >
-              <div className="w-1 h-10 bg-gray-400 rounded-full" />
-            </div>
-            <div className="h-full bg-white rounded-lg shadow-sm" style={{ width: `${100 - codePanelWidth}%` }}>
-              <div className="flex items-center justify-between p-3 border-b border-gray-200">
-                <div className="flex space-x-2">
-                  <Button
-                    variant={activeTab === "code" ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setActiveTab("code")}
-                    className={`h-8 px-3 rounded-lg ${
-                      activeTab === "code" ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Code className="h-4 w-4 mr-2" />
-                    Code
-                  </Button>
-                  <Button
-                    variant={activeTab === "preview" ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setActiveTab("preview")}
-                    className={`h-8 px-3 rounded-lg ${
-                      activeTab === "preview" ? "bg-blue-500 text-white hover:bg-blue-600" : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    Preview
-                  </Button>
-                </div>
-              </div>
-              <CodeViewer files={currentFiles} className="h-[calc(100%-2.5rem)]" />
             </div>
           </div>
         )}
       </div>
-
-      {/* Custom Animation Styles */}
-      <style jsx>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.3s ease-out;
-        }
-      `}</style>
     </div>
   )
 }

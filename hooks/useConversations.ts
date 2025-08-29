@@ -522,10 +522,18 @@ export function useConversations() {
     return ""
   }
 
-  const getLatestGameResponse = (message: Message): GameResponse | null => {
-    if (!message.gameResponse || message.gameResponse.length === 0) return null
-    return message.gameResponse[message.gameResponse.length - 1]
+ const getLatestGameResponse = (message?: Message): GameResponse | null => {
+    if (!message) return null
+    if (!message.gameResponse) return null
+
+    const responses = Array.isArray(message.gameResponse)
+      ? message.gameResponse
+      : [message.gameResponse]
+
+    if (responses.length === 0) return null
+    return responses[responses.length - 1]
   }
+
 
   // Get current streaming code for the editor
   const getCurrentStreamingCode = (): string => {

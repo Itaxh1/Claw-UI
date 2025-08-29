@@ -16,10 +16,13 @@ import {
   Folder,
   FolderOpen,
 } from "lucide-react"
-import dynamic from "next/dynamic"
-import type { CodeFile } from "@/lib/api"
 
-const MonacoEditor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
+interface CodeFile {
+  path: string
+  content: string
+  type: string
+  language: string
+}
 
 interface CodeViewerProps {
   files: CodeFile[]
@@ -66,55 +69,25 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
 
   if (!files || files.length === 0) {
     return (
-      <div className={`bg-gray-50 flex items-center justify-center ${className}`}>
-        <div className="text-center text-gray-500">
-          <Code className="h-16 w-16 mx-auto mb-4 opacity-50" />
-          <p>No code files to display</p>
+      <div className={`glass-card flex items-center justify-center p-8 ${className}`}>
+        <div className="text-center text-secondary-liquid">
+          <Code className="h-16 w-16 mx-auto mb-4 opacity-50 system-blue" />
+          <p className="text-primary-liquid">No code files to display</p>
         </div>
       </div>
     )
   }
 
-  // Build file tree structure
+  // Build file tree structure - simplified version
   const buildFileTree = (files: CodeFile[]): FileTreeNode[] => {
-    const root: { [key: string]: FileTreeNode } = {}
-
-    files.forEach((file) => {
-      const parts = file.path.split("/")
-      let current = root
-
-      parts.forEach((part, index) => {
-        if (!current[part]) {
-          current[part] = {
-            name: part,
-            path: parts.slice(0, index + 1).join("/"),
-            type: index === parts.length - 1 ? "file" : "folder",
-            children: index === parts.length - 1 ? undefined : {},
-            file: index === parts.length - 1 ? file : undefined,
-          }
-        }
-        if (current[part].children) {
-          current = current[part].children as { [key: string]: FileTreeNode }
-        }
-      })
-    })
-
-    const convertToArray = (obj: { [key: string]: FileTreeNode }): FileTreeNode[] => {
-      return Object.values(obj)
-        .map((node) => ({
-          ...node,
-          children: node.children ? convertToArray(node.children as { [key: string]: FileTreeNode }) : undefined,
-        }))
-        .sort((a, b) => {
-          // Folders first, then files
-          if (a.type !== b.type) {
-            return a.type === "folder" ? -1 : 1
-          }
-          return a.name.localeCompare(b.name)
-        })
-    }
-
-    return convertToArray(root)
+    const fileNodes: FileTreeNode[] = files.map(file => ({
+      name: file.path.split('/').pop() || file.path,
+      path: file.path,
+      type: "file" as const,
+      file: file
+    }))
+    
+    return fileNodes.sort((a, b) => a.name.localeCompare(b.name))
   }
 
   const fileTree = buildFileTree(files)
@@ -123,37 +96,18 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
   const getFileIcon = (type: string) => {
     switch (type) {
       case "html":
-        return <FileText className="h-4 w-4 text-orange-600" />
+        return <FileText className="h-4 w-4 system-orange" />
       case "js":
       case "javascript":
-        return <Code className="h-4 w-4 text-yellow-600" />
+        return <Code className="h-4 w-4 system-yellow" />
       case "css":
-        return <FileText className="h-4 w-4 text-blue-600" />
+        return <FileText className="h-4 w-4 system-blue" />
       case "json":
-        return <FileText className="h-4 w-4 text-green-600" />
+        return <FileText className="h-4 w-4 system-green" />
       case "asset":
-        return <ImageIcon className="h-4 w-4 text-purple-600" />
+        return <ImageIcon className="h-4 w-4 system-purple" />
       default:
-        return <FileText className="h-4 w-4 text-gray-600" />
-    }
-  }
-
-  const getLanguageForMonaco = (language: string) => {
-    switch (language.toLowerCase()) {
-      case "javascript":
-      case "js":
-        return "javascript"
-      case "html":
-        return "html"
-      case "css":
-        return "css"
-      case "json":
-        return "json"
-      case "typescript":
-      case "ts":
-        return "typescript"
-      default:
-        return "plaintext"
+        return <FileText className="h-4 w-4 text-secondary-liquid" />
     }
   }
 
@@ -193,70 +147,42 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
     URL.revokeObjectURL(url)
   }
 
-  const toggleFolder = (folderPath: string) => {
-    const newExpanded = new Set(expandedFolders)
-    if (newExpanded.has(folderPath)) {
-      newExpanded.delete(folderPath)
-    } else {
-      newExpanded.add(folderPath)
-    }
-    setExpandedFolders(newExpanded)
-  }
-
-  const renderFileTree = (nodes: FileTreeNode[], depth = 0) => {
+  const renderFileTree = (nodes: FileTreeNode[]) => {
     return nodes.map((node) => (
-      <div key={node.path}>
-        {node.type === "folder" ? (
-          <div>
-            <button
-              onClick={() => toggleFolder(node.path)}
-              className="flex items-center w-full text-left px-2 py-1 hover:bg-gray-100 rounded text-sm"
-              style={{ paddingLeft: `${8 + depth * 16}px` }}
-            >
-              {expandedFolders.has(node.path) ? (
-                <ChevronDown className="h-4 w-4 mr-1 text-gray-500" />
-              ) : (
-                <ChevronRight className="h-4 w-4 mr-1 text-gray-500" />
-              )}
-              {expandedFolders.has(node.path) ? (
-                <FolderOpen className="h-4 w-4 mr-2 text-blue-600" />
-              ) : (
-                <Folder className="h-4 w-4 mr-2 text-blue-600" />
-              )}
-              <span className="text-gray-700">{node.name}</span>
-            </button>
-            {expandedFolders.has(node.path) && node.children && <div>{renderFileTree(node.children, depth + 1)}</div>}
-          </div>
-        ) : (
-          <button
-            onClick={() => setActiveFile(node.path)}
-            className={`flex items-center w-full text-left px-2 py-1 rounded text-sm ${
-              activeFile === node.path ? "bg-blue-100 text-blue-900" : "text-gray-700 hover:bg-gray-100"
-            }`}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
-          >
-            {node.file && getFileIcon(node.file.type)}
-            <span className="ml-2 truncate flex-1">{node.name}</span>
-            {node.file && (
-              <Badge variant="outline" className="ml-2 text-xs shrink-0">
-                {node.file.language}
-              </Badge>
-            )}
-          </button>
+      <button
+        key={node.path}
+        onClick={() => setActiveFile(node.path)}
+        className={`flex items-center w-full text-left px-3 py-2 rounded-xl text-sm transition-all duration-200 ${
+          activeFile === node.path 
+            ? "bg-surface-tertiary text-primary-liquid border border-blue-500/30" 
+            : "text-secondary-liquid hover:bg-surface-secondary hover:text-primary-liquid"
+        }`}
+      >
+        {node.file && getFileIcon(node.file.type)}
+        <span className="ml-2 truncate flex-1 text-primary-liquid">{node.name}</span>
+        {node.file && (
+          <Badge variant="outline" className="ml-2 text-xs shrink-0 bg-surface-quaternary border-none text-tertiary-liquid">
+            {node.file.language}
+          </Badge>
         )}
-      </div>
+      </button>
     ))
   }
 
   return (
-    <div className={`flex h-full ${className}`}>
+    <div className={`flex h-full ${className} animate-liquid-fade-in`}>
       {/* File Tree Sidebar - 30% of code area */}
-      <div className="w-[30%] border-r border-gray-200 bg-gray-50 flex flex-col shrink-0">
+      <div className="w-[30%] glass-surface flex flex-col shrink-0 rounded-l-2xl">
         {/* Header */}
-        <div className="p-3 border-b border-gray-200 bg-white">
+        <div className="p-4 glass-elevated rounded-tl-2xl">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-900">Files ({files.length})</h3>
-            <Button variant="outline" size="sm" onClick={handleDownloadAll} className="h-7 px-2 text-xs bg-transparent">
+            <h3 className="text-sm font-semibold text-primary-liquid">Files ({files.length})</h3>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleDownloadAll} 
+              className="h-8 px-3 text-xs liquid-button text-white"
+            >
               <Download className="h-3 w-3 mr-1" />
               All
             </Button>
@@ -264,7 +190,7 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
         </div>
 
         {/* File Tree */}
-        <ScrollArea className="flex-1 p-2">
+        <ScrollArea className="flex-1 p-3">
           <div className="space-y-1">{renderFileTree(fileTree)}</div>
         </ScrollArea>
       </div>
@@ -272,12 +198,12 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
       {/* Code Editor - 70% of code area */}
       <div className="w-[70%] flex flex-col min-w-0">
         {/* File Header */}
-        <div className="border-b border-gray-200 bg-white p-3 shrink-0">
+        <div className="glass-elevated p-4 shrink-0 rounded-tr-2xl">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 min-w-0">
+            <div className="flex items-center space-x-3 min-w-0">
               {getFileIcon(activeFileData.type)}
-              <span className="text-sm font-medium text-gray-900 truncate">{activeFileData.path}</span>
-              <Badge variant="outline" className="text-xs shrink-0">
+              <span className="text-sm font-medium text-primary-liquid truncate">{activeFileData.path}</span>
+              <Badge variant="outline" className="text-xs shrink-0 bg-surface-quaternary border-none text-tertiary-liquid">
                 {activeFileData.language}
               </Badge>
             </div>
@@ -286,67 +212,38 @@ export function CodeViewer({ files, className = "" }: CodeViewerProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleCopyFile(activeFileData.path, activeFileData.content)}
-                className="h-7 px-2"
+                className="h-8 px-2 hover:bg-surface-tertiary rounded-xl transition-all"
               >
                 {copiedFile === activeFileData.path ? (
-                  <Check className="h-4 w-4 text-green-600" />
+                  <Check className="h-4 w-4 system-green" />
                 ) : (
-                  <Copy className="h-4 w-4" />
+                  <Copy className="h-4 w-4 text-secondary-liquid" />
                 )}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => handleDownloadFile(activeFileData)} className="h-7 px-2">
-                <Download className="h-4 w-4" />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => handleDownloadFile(activeFileData)} 
+                className="h-8 px-2 hover:bg-surface-tertiary rounded-xl transition-all"
+              >
+                <Download className="h-4 w-4 text-secondary-liquid" />
               </Button>
             </div>
           </div>
         </div>
 
         {/* Code Content */}
-        <div className="flex-1 min-h-0">
-          <MonacoEditor
-            height="100%"
-            language={getLanguageForMonaco(activeFileData.language)}
-            value={activeFileData.content}
-            theme="vs-light"
-            options={{
-              readOnly: true,
-              minimap: { enabled: true },
-              fontSize: 14,
-              fontFamily:
-                "'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace",
-              lineNumbers: "on",
-              roundedSelection: false,
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              tabSize: 2,
-              wordWrap: "on",
-              folding: true,
-              bracketPairColorization: { enabled: true },
-              padding: { top: 16, bottom: 16 },
-              smoothScrolling: true,
-              cursorBlinking: "blink",
-              renderWhitespace: "selection",
-              showFoldingControls: "always",
-              foldingHighlight: true,
-              unfoldOnClickAfterEndOfLine: true,
-              scrollbar: {
-                vertical: "visible",
-                horizontal: "visible",
-                useShadows: false,
-                verticalHasArrows: false,
-                horizontalHasArrows: false,
-                verticalScrollbarSize: 10,
-                horizontalScrollbarSize: 10,
-              },
-            }}
-          />
+        <div className="flex-1 min-h-0 bg-surface-primary">
+          <div className="w-full h-full bg-surface-primary text-primary-liquid p-6 overflow-auto font-mono text-sm rounded-br-2xl">
+            <pre className="whitespace-pre-wrap leading-relaxed">{activeFileData.content}</pre>
+          </div>
         </div>
 
         {/* File Info Footer */}
-        <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 shrink-0">
-          <div className="flex items-center justify-between text-xs text-gray-600">
+        <div className="bg-surface-secondary px-4 py-3 shrink-0 rounded-br-2xl">
+          <div className="flex items-center justify-between text-xs text-tertiary-liquid">
             <div className="flex items-center space-x-4">
-              <span>{activeFileData.language}</span>
+              <span className="text-secondary-liquid">{activeFileData.language}</span>
               <span>{Math.round(activeFileData.content.length / 1024)} KB</span>
               <span>{activeFileData.content.split("\n").length} lines</span>
             </div>
